@@ -83,7 +83,7 @@ and that the new Causal Cluster architecture would be the preferred approach giv
 
 ## About
 
-![Infrastructure](images/diagram.png)
+![Infrastructure](.images/diagram.png)
 
 Neo4j graph database is deployed as a Causal Cluster ([HA clustering is deprecated in the latest neo4j versions](https://neo4j.com/developer/kb/comparing-ha-vs-causal-clusters/)).
 It uses [Bolt](https://boltprotocol.org/) – a highly efficient, lightweight binary client-server protocol designed for database applications.
