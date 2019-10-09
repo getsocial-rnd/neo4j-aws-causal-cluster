@@ -76,6 +76,8 @@ and that the new Causal Cluster architecture would be the preferred approach giv
 
 - Autoscaling Groups doesn't scale cluster automatically but used to keep cluster at desired capacity and replace unhealthy nodes.
 
+- Neo4j instances **must** have internet access (so your Subnets must have NAT Gateway or Internet Gateway attached (and **Auto-assign public IPv4 address** should be enabled)
+
 ## Prerequisites
 
 - Install [Docker](https://docs.docker.com/engine/installation/) to build the image.
