@@ -708,8 +708,6 @@ Resources:
               Value: !Ref AWS::StackId
             - Name: NEO4J_ACCEPT_LICENSE_AGREEMENT
               Value: !If [AcceptedLicense, "yes", "no"]
-            - Name: NEO4J_QUERY_LOG
-              Value: !Ref SlowQueryLog
             - Name: NEO4J_DATA_ROOT
               Value: /neo4j
             - !If
