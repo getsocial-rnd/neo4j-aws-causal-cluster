@@ -344,6 +344,12 @@ elif [ "${cmd}" == "backup" ]; then
         done
     fi
 
+    # cleaning old backups data before running daily backups
+    # to run full backup instead of incremental one
+    if [ "$(date +%H)" == "00" ]; then
+        rm -rfv $BACKUP_DIR/*
+    fi
+
     echo "Creating Neo4j DB backup from node $BACKUP_FROM"
     neo4j-admin backup --backup-dir=$BACKUP_DIR/ --name=$BACKUP_NAME --from=$BACKUP_FROM
 
