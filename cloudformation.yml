@@ -873,7 +873,7 @@ Resources:
           MinInstancesInService: 2
           PauseTime: PT10M
           WaitOnResourceSignals: True
-      - !Ref AWS::NoValue 
+      - AutoScalingRollingUpdate: !Ref AWS::NoValue 
   CoreASGTerminateHook:
     Condition: EnableASGHook
     Type: "AWS::AutoScaling::LifecycleHook"
@@ -931,7 +931,7 @@ Resources:
           MinInstancesInService: 0
           PauseTime: PT10M
           WaitOnResourceSignals: True
-      - !Ref AWS::NoValue 
+      - AutoScalingRollingUpdate: !Ref AWS::NoValue 
   ReplicaASGTerminateHook:
     Condition: EnableReplicaASGHook
     Type: "AWS::AutoScaling::LifecycleHook"
