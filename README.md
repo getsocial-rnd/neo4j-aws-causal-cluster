@@ -44,7 +44,7 @@ and that the new Causal Cluster architecture would be the preferred approach giv
 ## Includes
 
 - Customizable CloudFormation template.
-- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 3.5.11*:
+- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 3.5.12*:
   - Custom extension [ecs-extension.sh](./ecs-extension.sh) for official [docker-entrypoint.sh](https://github.com/neo4j/docker-neo4j/blob/master/docker-image-src/3.5/docker-entrypoint.sh)
   - Custom healthcheck script [healthcheck.sh](./healthcheck.sh)
   - Custom script for initial db users creation [init-db.sh](./init-db.sh)
@@ -290,7 +290,7 @@ Most of cluster operations is done via ECS Console:
     1. Click **Update**
     1. Set **Number of tasks** to `0`
     1. Click **Skip to review** and **Update Service**
-    1. Wait untill all Neo4j containers are stopped on the Service **Deployments** page (you will see **Running count: 0**)
+    1. Wait until all Neo4j containers are stopped on the Service **Deployments** page (you will see **Running count: 0**)
 
 - #### Start cluster
 
