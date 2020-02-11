@@ -733,7 +733,7 @@ Resources:
               awslogs-stream-prefix: !Ref Neo4jReplicasSubdomain
           HealthCheck:
             Command: [ CMD-SHELL, "/healthcheck.sh" ] 
-            Interval: 15
+            Interval: 60
             Retries: 10
             StartPeriod: 300
             Timeout: 10
