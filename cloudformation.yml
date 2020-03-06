@@ -17,7 +17,7 @@ Metadata:
       - Label: { default: "Cloud Map discovery settings" }
         Parameters: [CloudMapNamespaceID, CloudMapNamespaceName, Neo4jCoreSubdomain, Neo4jReplicasSubdomain]
       - Label: { default: "Neo4J operations" }
-        Parameters: [BackupPath, BackupHourlyStoreForDays,BackupDailyStoreForDays, AllowUpgrade, IsDrainSupported, SlowQueryLog]
+        Parameters: [BackupBatchQueueARN, BackupBatchInstanceType, BackupPath, BackupBatchDiskSize, BackupHourlyStoreForDays,BackupDailyStoreForDays, AllowUpgrade, IsDrainSupported, SlowQueryLog]
     ParameterLabels: 
       AcceptLicense: { default: "Do you agree?" }
       IsDrainSupported: { default: "Does your AWS account has system for automatic ECS instance draining deployed?"}
@@ -108,17 +108,17 @@ Parameters:
   BackupPath:
     Description: |
       (FOR RESTORE ONLY) Start cluster from a database backup snapshot (zip). Full S3 path `<bucket_name>/path/to/backup.zip`
-      IMPORTNAT: Rolling backup restore is not possible. You need to stop the cluster and then do the import.
+      IMPORTANT: Rolling backup restore is not possible. You need to stop the cluster and then do the import.
       See https://neo4j.com/docs/operations-manual/current/backup/restoring/#backup-restoring-causal-cluster
     Type: String
   ClusterInstanceType:
     Description: EC2 instance type for Neo4J cluster
     Type: String
     Default: t2.medium
-    AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, # 4gb
-                     spot.large, t2.large, t3.large, t3a.large, m4.large, m5.large, m5a.large, # 8gb
-                     spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
-                     spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
+    AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, m3.medium, # 4gb
+                     spot.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
+                     spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
+                     spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
                     #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
                     #  m4.10xlarge, m5.10xlarge, m5a.10xlarge,  # 160gb
                     #  m4.16xlarge, m5.16xlarge, m5a.16xlarge,  # 256gb
@@ -128,10 +128,10 @@ Parameters:
     Description: EC2 instance type for Neo4J Replicas node
     Type: String
     Default: t2.medium
-    AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, # 4gb
-                     spot.large, t2.large, t3.large, t3a.large, m4.large, m5.large, m5a.large, # 8gb
-                     spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
-                     spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
+    AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, m3.medium, # 4gb
+                     spot.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
+                     spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
+                     spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
                     #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
                     #  m4.10xlarge, m5.10xlarge, m5a.10xlarge,  # 160gb
                     #  m4.16xlarge, m5.16xlarge, m5a.16xlarge,  # 256gb
@@ -177,16 +177,46 @@ Parameters:
     Type: Number
     Default: 14
     Description: Number of days to store daily backups (backup made at midnight considered as daily)
+  BackupBatchQueueARN:
+    Description: |
+      (OPTIONAL)
+      Use existing Batch Jobs Queue to perform Neo4j cluster backups.
+      However, need to make sure, that it has all needed permissions
+      and can access backup ports of Neo4j Cluster nodes.
+      If not provided, separate AutoScaled Spot environment for Batch will be created
+    Type: String
+  BackupBatchInstanceType:
+    Description: |
+      EC2 instance type to use for Batch Environment for backups.
+      (This also used to define Backup Job container memory restrictions)
+    Type: String
+    Default: m3.medium
+    AllowedValues: [ m3.medium, # 4gb
+                     m3.large, m4.large, m5.large, m5a.large, # 8gb
+                     m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
+                     m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
+                     r3.large, #  r3.large on spot is actually cheaper then m4.large
+                   ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
+    ConstraintDescription: Please choose a valid instance type.
+  BackupBatchDiskSize:
+    Description: |
+      Size of the disk to perform backups on. Take in mind that 
+      Consistency Check may consume a lot of disk IOPS and the bigger
+      the disk the more performance it has (IOPS)
+    Type: Number
+    Default: 30
 Mappings:
   InstanceTypes:
     spot.medium: # for testing
       Memory: 4gb
+      vCPUs: 2
       Instances:
         - InstanceType: t3a.medium
         - InstanceType: t3.medium
         - InstanceType: t2.medium
     spot.large: # for production
       Memory: 8gb
+      vCPUs: 2
       Instances:
         - InstanceType: t3a.large
         - InstanceType: t3.large
@@ -194,8 +224,10 @@ Mappings:
         - InstanceType: t2.large
         - InstanceType: m5.large
         - InstanceType: m4.large
+        - InstanceType: m3.large
     spot.xlarge: # for production
       Memory: 16gb
+      vCPUs: 4
       Instances:
         - InstanceType: t3a.xlarge
         - InstanceType: t3.xlarge
@@ -203,11 +235,13 @@ Mappings:
         - InstanceType: t2.xlarge
         - InstanceType: m5.xlarge
         - InstanceType: m4.xlarge
+        - InstanceType: m3.xlarge
         # r5 is also possible to use here, but they have less cpu
         # - InstanceType: r5.xlarge
         # - InstanceType: r5a.xlarge
     spot.2xlarge: # for production
       Memory: 32gb
+      vCPUs: 8
       Instances:
         - InstanceType: t3a.2xlarge
         - InstanceType: t3.2xlarge
@@ -215,98 +249,64 @@ Mappings:
         - InstanceType: t2.2xlarge
         - InstanceType: m5.2xlarge
         - InstanceType: m4.2xlarge
-    t3a.medium:  { Instances: [], Memory: 4gb }
-    t3.medium:   { Instances: [], Memory: 4gb }
-    t2.medium:   { Instances: [], Memory: 4gb }
-    t3a.large:   { Instances: [], Memory: 8gb }
-    t3.large:    { Instances: [], Memory: 8gb }
-    t2.large:    { Instances: [], Memory: 8gb } 
-    m5a.large:   { Instances: [], Memory: 8gb }
-    m5.large:    { Instances: [], Memory: 8gb }
-    m4.large:    { Instances: [], Memory: 8gb }
-    t3a.xlarge:  { Instances: [], Memory: 16gb }
-    t3.xlarge:   { Instances: [], Memory: 16gb }
-    t2.xlarge:   { Instances: [], Memory: 16gb }
-    m5a.xlarge:  { Instances: [], Memory: 16gb }
-    m5.xlarge:   { Instances: [], Memory: 16gb }
-    m4.xlarge:   { Instances: [], Memory: 16gb }
-    t3a.2xlarge: { Instances: [], Memory: 32gb }
-    t3.2xlarge:  { Instances: [], Memory: 32gb }
-    t2.2xlarge:  { Instances: [], Memory: 32gb }
-    m5a.2xlarge: { Instances: [], Memory: 32gb }
-    m5.2xlarge:  { Instances: [], Memory: 32gb }
-    m4.2xlarge:  { Instances: [], Memory: 32gb }
+        - InstanceType: m3.2xlarge
+    t3a.medium:  { Instances: [], Memory: 4gb, vCPUs: 2 }
+    t3.medium:   { Instances: [], Memory: 4gb, vCPUs: 2 }
+    t2.medium:   { Instances: [], Memory: 4gb, vCPUs: 2 }
+    m3.medium:   { Instances: [], Memory: 4gb, vCPUs: 1 }
+    t3a.large:   { Instances: [], Memory: 8gb, vCPUs: 2 }
+    t3.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
+    t2.large:    { Instances: [], Memory: 8gb, vCPUs: 2 } 
+    m5a.large:   { Instances: [], Memory: 8gb, vCPUs: 2 }
+    m5.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
+    m4.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
+    m3.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
+    t3a.xlarge:  { Instances: [], Memory: 16gb, vCPUs: 4 }
+    t3.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
+    t2.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m5a.xlarge:  { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m5.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m4.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m3.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
+    t3a.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
+    t3.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
+    t2.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
+    m5a.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
+    m5.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
+    m4.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
+    m3.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
+    ## r3.large instance as spot is actually cheaper then m4.large
+    ## perfect candidate for backups for example
+    r3.large:    { Instances: [], Memory: 16gb, vCPUs: 2 }
   MemoryMap:
     4gb:
-      ContainerMemory: 3700
+      ContainerMemory: 3500
       JavaHeap: 2000m
       JavaPage: 800m
-      ContainerMemoryReplica: 2500
-      JavaHeapReplica: 1200m
-      JavaPageReplica: 900m
-      ContainerMemoryBackup: 1200
-      JavaHeapBackup: 800m
-      JavaPageBackup: 100m
     8gb:
       ContainerMemory: 7000
       JavaHeap: 3000m
       JavaPage: 3000m
-      ContainerMemoryReplica: 5200
-      JavaHeapReplica: 2500m
-      JavaPageReplica: 2300m
-      ContainerMemoryBackup: 2200
-      JavaHeapBackup: 1200m
-      JavaPageBackup: 600m
     16gb:
       ContainerMemory: 15000
       JavaHeap: 6800m
       JavaPage: 6800m
-      ContainerMemoryReplica: 10000
-      JavaHeapReplica: 5500m
-      JavaPageReplica: 5500m
-      ContainerMemoryBackup: 5000
-      JavaHeapBackup: 1500m
-      JavaPageBackup: 2500m
     32gb:
       ContainerMemory: 31000
       JavaHeap: 13500m
       JavaPage: 13500m
-      ContainerMemoryReplica: 26000
-      JavaHeapReplica: 11500m
-      JavaPageReplica: 11500m
-      ContainerMemoryBackup: 5000
-      JavaHeapBackup: 1500m
-      JavaPageBackup: 2500m
     64gb:
       ContainerMemory: 63000
       JavaHeap: 28000m
       JavaPage: 28000m
-      ContainerMemoryReplica: 50000
-      JavaHeapReplica: 23000m
-      JavaPageReplica: 23000m
-      ContainerMemoryBackup: 12000
-      JavaHeapBackup: 2000m
-      JavaPageBackup: 8000m
     160gb:
       ContainerMemory: 155000
       JavaHeap: 72000m
       JavaPage: 72000m
-      ContainerMemoryReplica: 120000
-      JavaHeapReplica: 55000m
-      JavaPageReplica: 55000m
-      ContainerMemoryBackup: 32000
-      JavaHeapBackup: 6000m
-      JavaPageBackup: 20000m
     256gb:
       ContainerMemory: 250000
       JavaHeap: 120000m
       JavaPage: 120000m
-      ContainerMemoryReplica: 200000
-      JavaHeapReplica: 95000m
-      JavaPageReplica: 95000m
-      ContainerMemoryBackup: 45000
-      JavaHeapBackup: 15000m
-      JavaPageBackup: 25000m
 Conditions:
   ReplicasEnabled: !Not [!Equals [!Ref ReplicasCount, 0]]
   PerformRestore: !Not [!Equals [!Ref BackupPath, ""]]
@@ -319,7 +319,8 @@ Conditions:
   EnableASGHook: !Equals [!Ref IsDrainSupported, "true"]
   EnableReplicaASGHook: !And [ !Condition EnableASGHook, !Condition ReplicasEnabled]  
   SlowQueryLogEnabled: !Not [ !Equals [!Ref SlowQueryLog, "disabled"]]
-  SlowQueryLogReplicaEnabled: !And [ !Condition SlowQueryLogEnabled, !Condition ReplicasEnabled]  
+  SlowQueryLogReplicaEnabled: !And [ !Condition SlowQueryLogEnabled, !Condition ReplicasEnabled]
+  CreateBatchEnv: !Equals [!Ref BackupBatchQueueARN, ""]
 Resources:
   Neo4jCluster:
     Type: AWS::ECS::Cluster
@@ -395,6 +396,15 @@ Resources:
       ToPort: "7687"
       CidrIp: 0.0.0.0/0
       Description: Neo4j Bolt external access
+  Neo4jSecurityGroupBackupsInbound:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref "Neo4jSecurityGroup"
+      IpProtocol: tcp
+      FromPort: "6362"
+      ToPort: "6372"
+      SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
+      Description: Neo4j Backup external access
   CloudwatchLogsGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -410,6 +420,7 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${AWS::StackName}-cluster"
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
       NetworkMode: host
       Volumes:
         - Name: !Sub ${AWS::StackName}-data
@@ -425,22 +436,13 @@ Resources:
           Essential: "true"
           Image: !Ref "DockerImage"
           MemoryReservation:
-            Fn::If:  
-            - ReplicasEnabled
-            - Fn::FindInMap:
+            Fn::FindInMap:
               - MemoryMap
               - Fn::FindInMap:
                 - InstanceTypes
                 - !Ref "ClusterInstanceType"
                 - Memory
               - ContainerMemory
-            - Fn::FindInMap:
-              - MemoryMap
-              - Fn::FindInMap:
-                - InstanceTypes
-                - !Ref "ClusterInstanceType"
-                - Memory
-              - ContainerMemoryReplica
           MountPoints:
           - ContainerPath: /neo4j
             SourceVolume: !Sub ${AWS::StackName}-data
@@ -490,58 +492,31 @@ Resources:
               Value: CORE
             - Name: NEO4J_dbms_memory_heap_max__size
               Value:
-                Fn::If:  
-                - ReplicasEnabled
-                - Fn::FindInMap:
+                Fn::FindInMap:
                   - MemoryMap
                   - Fn::FindInMap:
                     - InstanceTypes
                     - !Ref "ClusterInstanceType"
                     - Memory
                   - JavaHeap
-                - Fn::FindInMap:
-                  - MemoryMap
-                  - Fn::FindInMap:
-                    - InstanceTypes
-                    - !Ref "ClusterInstanceType"
-                    - Memory
-                  - JavaHeapReplica
             - Name: NEO4J_dbms_memory_heap_initial__size
               Value:
-                Fn::If:  
-                - ReplicasEnabled
-                - Fn::FindInMap:
+                Fn::FindInMap:
                   - MemoryMap
                   - Fn::FindInMap:
                     - InstanceTypes
                     - !Ref "ClusterInstanceType"
                     - Memory
                   - JavaHeap
-                - Fn::FindInMap:
-                  - MemoryMap
-                  - Fn::FindInMap:
-                    - InstanceTypes
-                    - !Ref "ClusterInstanceType"
-                    - Memory
-                  - JavaHeapReplica
             - Name: NEO4J_dbms_memory_pagecache_size
               Value:
-                Fn::If:  
-                - ReplicasEnabled
-                - Fn::FindInMap:
+                Fn::FindInMap:
                   - MemoryMap
                   - Fn::FindInMap:
                     - InstanceTypes
                     - !Ref "ClusterInstanceType"
                     - Memory
                   - JavaPage
-                - Fn::FindInMap:
-                  - MemoryMap
-                  - Fn::FindInMap:
-                    - InstanceTypes
-                    - !Ref "ClusterInstanceType"
-                    - Memory
-                  - JavaPageReplica
             - Name: NEO4J_ADMIN_PASSWORD
               Value: !Ref AdminPassword
             - Name: NEO4J_GUEST_AUTH
@@ -611,6 +586,7 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "${AWS::StackName}-replica"
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
       NetworkMode: host
       Volumes:
         - Name: exports
@@ -628,7 +604,7 @@ Resources:
               - InstanceTypes
               - !Ref "ReplicasInstanceType"
               - Memory
-            - "ContainerMemoryReplica"
+            - "ContainerMemory"
           MountPoints:
             - ContainerPath: /tmp/exports
               SourceVolume: exports
@@ -677,7 +653,7 @@ Resources:
                   - InstanceTypes
                   - !Ref "ReplicasInstanceType"
                   - Memory
-                - "JavaHeapReplica"
+                - "JavaHeap"
             - Name: NEO4J_dbms_memory_heap_initial__size
               Value:
                 Fn::FindInMap:
@@ -686,7 +662,7 @@ Resources:
                   - InstanceTypes
                   - !Ref "ReplicasInstanceType"
                   - Memory
-                - "JavaHeapReplica"
+                - "JavaHeap"
             - Name: NEO4J_dbms_memory_pagecache_size
               Value:
                 Fn::FindInMap:
@@ -695,7 +671,7 @@ Resources:
                   - InstanceTypes
                   - !Ref "ReplicasInstanceType"
                   - Memory
-                - "JavaPageReplica"
+                - "JavaPage"
             - Name: NEO4J_ADMIN_PASSWORD
               Value: !Ref AdminPassword
             - Name: NEO4J_GUEST_AUTH
@@ -1085,7 +1061,6 @@ Resources:
           ContainerName: neo4j
           ContainerPort: 5000
   S3RestorePolicy:
-    Condition: PerformRestore
     Type: AWS::IAM::Policy
     Properties:
       PolicyName: !Sub "${AWS::StackName}-s3-restore-access"
@@ -1096,7 +1071,48 @@ Resources:
               - "s3:GetObject"
             Resource: !Sub "arn:aws:s3:::${BackupPath}"
       Roles:
-        - Ref: "EC2Role"
+        - !Ref ECSTaskRole
+        - !Ref EC2Role 
+  S3BackupPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${AWS::StackName}-s3-backup-access"
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:ListBucket"
+            Resource: !GetAtt BackupBucket.Arn
+          - Effect: Allow
+            Action:
+              - "s3:PutObject"
+              - "s3:GetObject"
+            Resource: !Sub "${BackupBucket.Arn}/*"
+      Roles:
+        - !Ref ECSTaskRole
+        - !Ref EC2Role 
+  ServiceDiscoveryPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${AWS::StackName}-service-discovery"
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: "servicediscovery:ListInstances"
+            Resource: "*"
+      Roles:
+        - !Ref ECSTaskRole
+        - !Ref EC2Role  
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ecs-tasks.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      Path: /
   EC2Role:
     Type: AWS::IAM::Role
     Properties:
@@ -1126,7 +1142,6 @@ Resources:
                   - "ecs:UpdateService"
                   - "autoscaling:Describe*"
                   - "ecr:GetAuthorizationToken"
-                  - "servicediscovery:ListInstances"
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -1134,18 +1149,6 @@ Resources:
                   - "ecr:BatchGetImage"
                   - "ecr:BatchCheckLayerAvailability"
                 Resource: !Ref DockerECRARN
-        - PolicyName: s3-backup-access
-          PolicyDocument:
-            Statement:
-              - Effect: Allow
-                Action:
-                  - "s3:ListBucket"
-                Resource: !GetAtt BackupBucket.Arn
-              - Effect: Allow
-                Action:
-                  - "s3:PutObject"
-                  - "s3:GetObject"
-                Resource: !Sub "${BackupBucket.Arn}/*"
         - PolicyName: rexray-ebs
           PolicyDocument:
             Statement:
@@ -1181,73 +1184,173 @@ Resources:
                 Resource: 
                   - !GetAtt CloudwatchLogsGroup.Arn
                   - !If [SlowQueryLogEnabled, !GetAtt CloudwatchSlowQueryLogsGroup.Arn, !Ref "AWS::NoValue"]
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/batch/job:* 
   Neo4jInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Path: /
       Roles: [!Ref "EC2Role"]
-  Neo4jBackupTask:
-    Type: AWS::ECS::TaskDefinition
+  BatchServiceRole:
+    Condition: CreateBatchEnv
+    Type: 'AWS::IAM::Role'
     Properties:
-      Family: !Sub "${AWS::StackName}-cluster-backup"
-      Volumes:
-        - Name: backups
-          Host:
-            SourcePath: "/opt/backups/"
-      ContainerDefinitions:
-        - Name: neo4j-backup
-          Command: [ backup ]
-          Essential: "true"
-          Image: !Ref "DockerImage"
-          Memory:
-            Fn::FindInMap:
-            - MemoryMap
-            - Fn::FindInMap:
-              - InstanceTypes
-              - !Ref "ClusterInstanceType"
-              - Memory
-            - "ContainerMemoryBackup"
-          MountPoints:
-            - ContainerPath: /tmp
-              SourceVolume: backups
-              ReadOnly: false
-          Environment:
-            - Name: NEO4J_dbms_memory_pagecache_size
-              Value:
-                Fn::FindInMap:
-                - MemoryMap
-                - Fn::FindInMap:
-                  - InstanceTypes
-                  - !Ref "ClusterInstanceType"
-                  - Memory
-                - "JavaPageBackup"
-            - Name: HEAP_SIZE
-              Value:
-                Fn::FindInMap:
-                - MemoryMap
-                - Fn::FindInMap:
-                  - InstanceTypes
-                  - !Ref "ClusterInstanceType"
-                  - Memory
-                - "JavaHeapBackup"
-            - Name: BACKUP_DIR
-              Value: "/tmp"
-            - Name: BACKUP_FROM
-              Value: this_instance
-            - Name: AWS_BACKUP_BUCKET
-              Value: !Ref BackupBucket
-            - Name: NEO4J_ACCEPT_LICENSE_AGREEMENT
-              Value: !If [AcceptedLicense, "yes", "no"]
-          Ulimits:
-            - Name: nofile
-              HardLimit: 400000
-              SoftLimit: 400000
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref 'CloudwatchLogsGroup'
-              awslogs-region: !Ref 'AWS::Region'
-              awslogs-stream-prefix: backup
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'batch.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole'
+  SpotFleetRole:
+    Condition: CreateBatchEnv
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'spotfleet.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole'
+  Neo4jBatchLanuchTemplate: 
+    # we need to create launch template, to extend disk size 
+    # and we cannot reuse existing templates, because user data
+    # has to be in mime-mulitpart format
+    # https://docs.aws.amazon.com/batch/latest/userguide/launch-templates.html
+    Type: "AWS::EC2::LaunchTemplate"
+    Properties:
+      LaunchTemplateData:
+        SecurityGroupIds: !Split      # this hack is made to append to the list :/
+        - ","
+        - !Sub
+          - "${idList},${Neo4jSecurityGroup}"
+          - idList: !Join [",", !Ref "NodeSecurityGroups"]
+        BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            VolumeSize: !Ref BackupBatchDiskSize
+            VolumeType: gp2
+        KeyName: !Ref 'KeyName'
+        ImageId: !Ref ECSAMI
+        TagSpecifications:
+        - ResourceType: volume
+          Tags: 
+            - Key: Name
+              Value: !Sub ${AWS::StackName}-batch
+            - Key: Stack
+              Value: !Ref AWS::StackName
+  BatchCompute:
+    Condition: CreateBatchEnv
+    Type: "AWS::Batch::ComputeEnvironment"
+    Properties:
+      Type: Managed
+      ServiceRole: !Ref BatchServiceRole
+      ComputeResources: 
+        Subnets: !If [ReplicasEnabled, !Ref ReplicasSubnetID, !Ref SubnetID] 
+        Type: SPOT
+        LaunchTemplate: 
+          Version: !GetAtt Neo4jBatchLanuchTemplate.LatestVersionNumber
+          LaunchTemplateId: !Ref Neo4jBatchLanuchTemplate
+        AllocationStrategy: BEST_FIT
+        DesiredvCpus: 0
+        MinvCpus: 0
+        MaxvCpus:           
+          Fn::FindInMap:
+            - InstanceTypes
+            - !Ref "BackupBatchInstanceType"
+            - vCPUs
+        InstanceRole: !Ref Neo4jInstanceProfile
+        SpotIamFleetRole: !Ref SpotFleetRole 
+        InstanceTypes: [!Ref BackupBatchInstanceType]
+        Tags:
+          Name: !Sub ${AWS::StackName}-batch
+          Stack: !Ref AWS::StackName
+      State: ENABLED
+  BatchQueue:
+    # to purge job queue run:
+    # for job in $(aws batch list-jobs --job-queue $QUEUE_NAME --job-status runnable --query jobSummaryList[].jobId); do aws batch cancel-job --job-id $job --reason "purge queue"; done
+    Condition: CreateBatchEnv
+    Type: "AWS::Batch::JobQueue"
+    Properties:
+      ComputeEnvironmentOrder: 
+        - ComputeEnvironment: !Ref BatchCompute
+          Order: 1
+      Priority: 1
+      State: "ENABLED"
+      JobQueueName: !Sub "${AWS::StackName}-backup" 
+    DependsOn: BatchCompute
+  BackupJob:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      JobDefinitionName: !Sub "${AWS::StackName}-backup"
+      RetryStrategy:
+        Attempts: 5
+      Timeout:
+        AttemptDurationSeconds: 10800
+      ContainerProperties:
+        JobRoleArn: !GetAtt ECSTaskRole.Arn
+        Command: [backup]
+        Memory:
+          Fn::FindInMap:
+          - MemoryMap
+          - Fn::FindInMap:
+            - InstanceTypes
+            - !Ref "BackupBatchInstanceType"
+            - Memory
+          - "ContainerMemory"
+        Vcpus: 
+          Fn::FindInMap:
+            - InstanceTypes
+            - !Ref "BackupBatchInstanceType"
+            - vCPUs
+        Image: !Ref "DockerImage"
+        Volumes:
+          - Name: backups-volume
+            Host:
+                SourcePath: /opt/backups 
+        MountPoints:
+          - ContainerPath: /tmp
+            ReadOnly: false
+            SourceVolume: backups-volume
+        Environment:
+          - Name: AWS_REGION
+            Value: !Ref AWS::Region
+          - Name: PAGE_CACHE
+            Value:
+              Fn::FindInMap:
+              - MemoryMap
+              - Fn::FindInMap:
+                - InstanceTypes
+                - !Ref "BackupBatchInstanceType"
+                - Memory
+              - "JavaPage"
+          - Name: HEAP_SIZE
+            Value:
+              Fn::FindInMap:
+              - MemoryMap
+              - Fn::FindInMap:
+                - InstanceTypes
+                - !Ref "BackupBatchInstanceType"
+                - Memory
+              - "JavaHeap"
+          - Name: BACKUP_DIR
+            Value: "/tmp"
+          - Name: BACKUP_FROM
+            Value: discovery
+          - Name: CLOUDMAP_SERVICE_ID
+            Value: !If [ReplicasEnabled, !Ref DiscoveryServiceReplicaSRV , !Ref DiscoveryServiceCoreSRV ]
+          - Name: AWS_BACKUP_BUCKET
+            Value: !Ref BackupBucket
+          - Name: NEO4J_ACCEPT_LICENSE_AGREEMENT
+            Value: !If [AcceptedLicense, "yes", "no"]
+        Ulimits:
+          - Name: nofile
+            HardLimit: 400000
+            SoftLimit: 400000
   BackupBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
@@ -1272,12 +1375,43 @@ Resources:
       ScheduleExpression: rate(1 hour)
       State: ENABLED
       Targets:
-        - Arn: !If ["ReplicasEnabled", !GetAtt Neo4jReplicas.Arn, !GetAtt Neo4jCluster.Arn ] 
+        - Arn: !If [ CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN ]
           Id: !Sub "${AWS::StackName}-backup-cluster"
-          EcsParameters:
-            TaskCount: 1
-            TaskDefinitionArn: !Ref Neo4jBackupTask
           RoleArn: !GetAtt BackupEventRole.Arn
+          BatchParameters:
+            JobDefinition: !Ref BackupJob
+            JobName: hourly-backup-job
+  BackupJobMonitorRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Sub "${AWS::StackName}-backup-batch-job-monitor"
+      Description: "Event to notify us of changed status of ECS Task"
+      State: ENABLED
+      EventPattern:
+        source: ["aws.batch"]
+        detail-type: ["Batch Job State Change"]
+        detail:
+          jobQueue: [ !Ref BatchQueue ]
+          status: ["FAILED"]
+      Targets:
+      - Arn: !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
+        Id: !Sub "${AWS::StackName}-backup-batch-job-monitor"
+  BackupFailAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: "1"
+      Statistic: Sum
+      Threshold: "0"
+      AlarmDescription: Backup Job Failed
+      Period: "300"
+      Namespace: AWS/Events
+      Dimensions:
+        - Name: RuleName
+          Value: !Ref BackupJobMonitorRule
+      ComparisonOperator: GreaterThanThreshold
+      MetricName: TriggeredRules
+      AlarmActions:
+        - !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
   BackupEventRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1289,13 +1423,13 @@ Resources:
             Action: ["sts:AssumeRole"]
       Path: /
       Policies:
-        - PolicyName: event-run-task
+        - PolicyName: event-run-batch-job
           PolicyDocument:
             Statement:
               - Effect: Allow
                 Action:
-                  - "ecs:RunTask"
-                Resource: !Ref Neo4jBackupTask
+                  - "batch:SubmitJob"
+                Resource: [ !Ref BackupJob, !If [ CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN ]]
   Neo4jSNSTopic:
     Type: AWS::SNS::Topic
     Condition: CreateSNSTopic
@@ -1347,7 +1481,7 @@ Resources:
       Statistic: Average
       Period: 60
       EvaluationPeriods: 10
-      Threshold: 70
+      Threshold: 85
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
         - !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
@@ -1559,18 +1693,16 @@ Resources:
       Name: !Sub "${AWS::StackName}-ecs-task-state-change"
       Description: "Event to notify us of changed status of ECS Task"
       State: ENABLED
-      EventPattern: !Sub 
-        - |
-          {
-              "source": ["aws.ecs"],
-              "detail-type": ["ECS Task State Change"], 
-              "detail": {
-                  "clusterArn": ["${Neo4jCluster.Arn}" ${replicaCluster}],
-                  "taskDefinitionArn": ["${Neo4jClusterTask}" ${replicaTask}]
-              }
-          }
-        - replicaCluster: !If [ ReplicasEnabled, !Sub ',"${Neo4jReplicas.Arn}"', ""]
-          replicaTask: !If [ ReplicasEnabled, !Sub ',"${Neo4jReplicasTask}"', ""] 
+      EventPattern:
+        source: ["aws.ecs"]
+        detail-type: ["ECS Task State Change"]
+        detail:
+          clusterArn: 
+          - !GetAtt Neo4jCluster.Arn
+          - !If [ ReplicasEnabled, !GetAtt Neo4jReplicas.Arn, !Ref "AWS::NoValue"]
+          taskDefinitionArn:
+          - !Ref Neo4jClusterTask
+          - !If [ ReplicasEnabled, !Ref Neo4jReplicasTask, !Ref "AWS::NoValue"] 
       Targets:
       - Arn: !GetAtt CloudMapSyncFunction.Arn
         Id: !Sub "${AWS::StackName}-ecs-task-state-change"
@@ -1587,16 +1719,13 @@ Resources:
       Name: !Sub "${AWS::StackName}-ecs-task-monitor"
       Description: "Event to notify us of changed status of ECS Task"
       State: ENABLED
-      EventPattern: !Sub |
-        {
-            "source": ["aws.ecs"],
-            "detail-type": ["ECS Task State Change"],
-            "detail": {
-                "clusterArn": ["${Neo4jCluster.Arn}"],
-                "taskDefinitionArn": ["${Neo4jClusterTask}", "${Neo4jBackupTask}"],
-                "stoppedReason": ["Essential container in task exited"]
-            }
-        }
+      EventPattern:
+        source: ["aws.ecs"]
+        detail-type: ["ECS Task State Change"]
+        detail:
+          clusterArn: [ !GetAtt Neo4jCluster.Arn ]
+          taskDefinitionArn: [ !Ref Neo4jClusterTask ] 
+          stoppedReason: [ "Essential container in task exited" ]
       Targets:
       - Arn: !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
         Id: !Sub "${AWS::StackName}-ecs-task-monitor"

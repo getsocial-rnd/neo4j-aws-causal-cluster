@@ -14,24 +14,24 @@ INSTANCE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4/)
 
 BACKUP_NAME=neo4j-backup
 
-cloudmap_discover() {
-    local cmd="""
-aws servicediscovery list-instances \
+cloudmap_discover_instances() {
+    aws servicediscovery list-instances \
                     --service-id $CLOUDMAP_SERVICE_ID \
                     --query "Instances[].Attributes.AWS_INSTANCE_IPV4" \
-                    --output text
+                    --output text \
                     --region $AWS_REGION
-"""
+}
 
+
+cloudmap_discover() {
     local count=0
     local backoff=20
     local ips=""
 
-
     # TODO: replica can join when there are 2 nodes
     until [ $count -eq ${NEO4J_causal__clustering_minimum__core__cluster__size__at__formation:-3} ] || [ $backoff -eq 0 ]
     do
-        ips=$($cmd | tr '\t' '\n')
+        ips=$(cloudmap_discover_instances | tr '\t' '\n')
         count=$(wc -l <<< "$ips")
         ((backoff--))
         echo "Expected ${NEO4J_causal__clustering_minimum__core__cluster__size__at__formation:-3} ips and got $count"
@@ -342,6 +342,8 @@ elif [ "${cmd}" == "backup" ]; then
                 break;
             fi
         done
+    elif [ "$BACKUP_FROM" == "discovery" ] && [ -n "$CLOUDMAP_SERVICE_ID" ] ; then
+        BACKUP_FROM=$(cloudmap_discover_instances | awk '{print $1}')
     fi
 
     # cleaning old backups data before running daily backups
@@ -351,7 +353,7 @@ elif [ "${cmd}" == "backup" ]; then
     fi
 
     echo "Creating Neo4j DB backup from node $BACKUP_FROM"
-    neo4j-admin backup --backup-dir=$BACKUP_DIR/ --name=$BACKUP_NAME --from=$BACKUP_FROM
+    neo4j-admin backup --backup-dir=$BACKUP_DIR/ --name=$BACKUP_NAME --from=$BACKUP_FROM ${PAGE_CACHE:+--pagecache=$PAGE_CACHE}
 
     BACKUP_FILE=$BACKUP_NAME-$(date +%s).zip
 

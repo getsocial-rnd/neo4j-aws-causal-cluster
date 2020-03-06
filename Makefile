@@ -12,7 +12,7 @@ build:
 .PHONY:
 push_image: build
 	@ echo "Pushing image based on last commit $(COMMIT)"
-	@ $(shell aws ecr get-login --region $(NEO_AWS_REGION) --no-include-email)
+	@ aws ecr get-login-password | docker login --username AWS --password-stdin $(NEO_ECR_REPO)
 	@ docker tag neo:latest $(NEO_ECR_REPO):$(COMMIT)
 	@ docker tag neo:latest $(NEO_ECR_REPO):$(BRANCH)
 	@ docker push $(NEO_ECR_REPO):$(COMMIT)
