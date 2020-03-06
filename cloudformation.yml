@@ -245,7 +245,8 @@ Mappings:
       JavaHeapReplica: 1200m
       JavaPageReplica: 900m
       ContainerMemoryBackup: 1200
-      JavaPageBackup: 600m
+      JavaHeapBackup: 800m
+      JavaPageBackup: 100m
     8gb:
       ContainerMemory: 7000
       JavaHeap: 3000m
@@ -254,7 +255,8 @@ Mappings:
       JavaHeapReplica: 2500m
       JavaPageReplica: 2300m
       ContainerMemoryBackup: 2200
-      JavaPageBackup: 1100m
+      JavaHeapBackup: 1200m
+      JavaPageBackup: 600m
     16gb:
       ContainerMemory: 15000
       JavaHeap: 6800m
@@ -263,6 +265,7 @@ Mappings:
       JavaHeapReplica: 5500m
       JavaPageReplica: 5500m
       ContainerMemoryBackup: 5000
+      JavaHeapBackup: 1500m
       JavaPageBackup: 2500m
     32gb:
       ContainerMemory: 31000
@@ -272,6 +275,7 @@ Mappings:
       JavaHeapReplica: 11500m
       JavaPageReplica: 11500m
       ContainerMemoryBackup: 5000
+      JavaHeapBackup: 1500m
       JavaPageBackup: 2500m
     64gb:
       ContainerMemory: 63000
@@ -281,7 +285,8 @@ Mappings:
       JavaHeapReplica: 23000m
       JavaPageReplica: 23000m
       ContainerMemoryBackup: 12000
-      JavaPageBackup: 6000m
+      JavaHeapBackup: 2000m
+      JavaPageBackup: 8000m
     160gb:
       ContainerMemory: 155000
       JavaHeap: 72000m
@@ -290,7 +295,8 @@ Mappings:
       JavaHeapReplica: 55000m
       JavaPageReplica: 55000m
       ContainerMemoryBackup: 32000
-      JavaPageBackup: 16000m
+      JavaHeapBackup: 6000m
+      JavaPageBackup: 20000m
     256gb:
       ContainerMemory: 250000
       JavaHeap: 120000m
@@ -299,7 +305,8 @@ Mappings:
       JavaHeapReplica: 95000m
       JavaPageReplica: 95000m
       ContainerMemoryBackup: 45000
-      JavaPageBackup: 22500m
+      JavaHeapBackup: 15000m
+      JavaPageBackup: 25000m
 Conditions:
   ReplicasEnabled: !Not [!Equals [!Ref ReplicasCount, 0]]
   PerformRestore: !Not [!Equals [!Ref BackupPath, ""]]
@@ -1214,6 +1221,15 @@ Resources:
                   - !Ref "ClusterInstanceType"
                   - Memory
                 - "JavaPageBackup"
+            - Name: HEAP_SIZE
+              Value:
+                Fn::FindInMap:
+                - MemoryMap
+                - Fn::FindInMap:
+                  - InstanceTypes
+                  - !Ref "ClusterInstanceType"
+                  - Memory
+                - "JavaHeapBackup"
             - Name: BACKUP_DIR
               Value: "/tmp"
             - Name: BACKUP_FROM
