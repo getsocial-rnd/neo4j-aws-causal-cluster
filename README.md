@@ -29,7 +29,7 @@ and that the new Causal Cluster architecture would be the preferred approach giv
 
 ## Features
 
-- Automatic daily backups to S3 using a read replica node (or core node, if the setup doesn't include read replicas).
+- Automatic daily backups to S3 using a spot based AWS Batch Jobs
 - Bootstrap a cluster from a backup snapshot.
 - Cluster self-healing with AutoScaling group and data volumes reuse.
 - CloudWatch alerts setup.
@@ -44,7 +44,7 @@ and that the new Causal Cluster architecture would be the preferred approach giv
 ## Includes
 
 - Customizable CloudFormation template.
-- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 3.5.12*:
+- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 3.5.18*:
   - Custom extension [ecs-extension.sh](./ecs-extension.sh) for official [docker-entrypoint.sh](https://github.com/neo4j/docker-neo4j/blob/master/docker-image-src/3.5/docker-entrypoint.sh)
   - Custom healthcheck script [healthcheck.sh](./healthcheck.sh)
   - Custom script for initial db users creation [init-db.sh](./init-db.sh)
@@ -334,4 +334,3 @@ Most of cluster operations is done via ECS Console:
     - Publish custom neo4j image on DockerHub
     - Add LauchStack button
 - More advanced monitoring ([Halin](https://medium.com/neo4j/monitoring-neo4j-with-halin-4c11429b46ff) or sending runtime metrics to CloudWatch)
-- Backup task on Fargate
