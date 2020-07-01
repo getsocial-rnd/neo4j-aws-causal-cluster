@@ -1,4 +1,4 @@
-FROM  neo4j:3.5.18-enterprise
+FROM  neo4j:3.5.19-enterprise
 
 RUN apt update && apt install -y --no-install-recommends \
 	curl \
