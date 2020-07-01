@@ -603,6 +603,8 @@ Resources:
           Host:
             SourcePath: "/tmp/exports"
         - Name: data
+          Host:
+            SourcePath: "/opt/neo4j"
       ContainerDefinitions:
         - Name: neo4j
           Essential: "true"
