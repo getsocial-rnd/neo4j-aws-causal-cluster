@@ -116,7 +116,7 @@ Parameters:
     Type: String
     Default: t2.medium
     AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, m3.medium, # 4gb
-                     spot.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
+                     spot.large, spot.r.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
                      spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
                      spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
                     #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
@@ -129,7 +129,7 @@ Parameters:
     Type: String
     Default: t2.medium
     AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, m3.medium, # 4gb
-                     spot.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
+                     spot.large, spot.r.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
                      spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
                      spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
                     #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
@@ -324,8 +324,8 @@ Conditions:
   SingleMaster: !Equals [!Ref DesiredCapacity, "1"]
   AcceptedLicense: !Equals [!Ref AcceptLicense, "true"]
   CreateCloudMapNamespace: !Equals [!Ref CloudMapNamespaceID, ""]
-  SpotCore: !Or [!Equals [!Ref ClusterInstanceType, "spot.medium"], !Equals [!Ref ClusterInstanceType, "spot.large"], !Equals [!Ref ClusterInstanceType, "spot.xlarge"], !Equals [!Ref ClusterInstanceType, "spot.2xlarge"]]
-  SpotReplica: !Or [!Equals [!Ref ReplicasInstanceType, "spot.medium"], !Equals [!Ref ReplicasInstanceType, "spot.large"], !Equals [!Ref ReplicasInstanceType, "spot.xlarge"], !Equals [!Ref ReplicasInstanceType, "spot.2xlarge"]] 
+  SpotCore: !Or [!Equals [!Ref ClusterInstanceType, "spot.medium"], !Equals [!Ref ClusterInstanceType, "spot.large"], !Equals [!Ref ClusterInstanceType, "spot.r.large"], !Equals [!Ref ClusterInstanceType, "spot.xlarge"], !Equals [!Ref ClusterInstanceType, "spot.2xlarge"]]
+  SpotReplica: !Or [!Equals [!Ref ReplicasInstanceType, "spot.medium"], !Equals [!Ref ReplicasInstanceType, "spot.large"], !Equals [!Ref ClusterInstanceType, "spot.r.large"], !Equals [!Ref ReplicasInstanceType, "spot.xlarge"], !Equals [!Ref ReplicasInstanceType, "spot.2xlarge"]] 
   EnableASGHook: !Equals [!Ref IsDrainSupported, "true"]
   EnableReplicaASGHook: !And [ !Condition EnableASGHook, !Condition ReplicasEnabled]  
   SlowQueryLogEnabled: !Not [ !Equals [!Ref SlowQueryLog, "disabled"]]
