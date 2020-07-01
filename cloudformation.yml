@@ -291,32 +291,32 @@ Mappings:
   MemoryMap:
     4gb:
       ContainerMemory: 3500
-      JavaHeap: 2000m
+      JavaHeap: 1800m
       JavaPage: 800m
     8gb:
       ContainerMemory: 7000
-      JavaHeap: 3000m
-      JavaPage: 3000m
+      JavaHeap: 3300m
+      JavaPage: 1800m
     16gb:
       ContainerMemory: 15000
-      JavaHeap: 6800m
-      JavaPage: 6800m
+      JavaHeap: 5000m
+      JavaPage: 6400m
     32gb:
       ContainerMemory: 31000
-      JavaHeap: 13500m
-      JavaPage: 13500m
+      JavaHeap: 11400m
+      JavaPage: 11800m
     64gb:
       ContainerMemory: 63000
-      JavaHeap: 28000m
-      JavaPage: 28000m
+      JavaHeap: 23g
+      JavaPage: 27g
     160gb:
       ContainerMemory: 155000
-      JavaHeap: 72000m
-      JavaPage: 72000m
+      JavaHeap: 31g
+      JavaPage: 106g
     256gb:
       ContainerMemory: 250000
-      JavaHeap: 120000m
-      JavaPage: 120000m
+      JavaHeap: 31g
+      JavaPage: 198g
 Conditions:
   ReplicasEnabled: !Not [!Equals [!Ref ReplicasCount, 0]]
   PerformRestore: !Not [!Equals [!Ref BackupPath, ""]]
