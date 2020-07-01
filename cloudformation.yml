@@ -239,6 +239,16 @@ Mappings:
         # r5 is also possible to use here, but they have less cpu
         # - InstanceType: r5.xlarge
         # - InstanceType: r5a.xlarge
+    spot.r.large: # for production
+      Memory: 16gb
+      vCPUs: 2
+      Instances:
+      # there are also r5ad, but not completely sure
+      # it will work OK with the RexRay storage
+        - InstanceType: r5a.large
+        - InstanceType: r5.large
+        - InstanceType: r4.large
+        - InstanceType: r3.large
     spot.2xlarge: # for production
       Memory: 32gb
       vCPUs: 8
