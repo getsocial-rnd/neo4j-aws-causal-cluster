@@ -5,7 +5,7 @@ Metadata:
       - Label: { default: "Neo4J License" }
         Parameters: [AcceptLicense]
       - Label: { default: "Global configurations" }
-        Parameters: [VpcId, KeyName, ECSAMI, NodeSecurityGroups, SNSTopicArn]
+        Parameters: [VpcId, KeyName, ECSAMI, NodeSecurityGroups, Neo4jAccessFromIP, SNSTopicArn]
       - Label: { default: "Core Nodes Configuration" }
         Parameters: [ClusterInstanceType, SubnetID, DesiredCapacity, EBSSize, EBSType, SpotCoreNodes]
       - Label: { default: "Read replicas configuration" }
@@ -205,6 +205,10 @@ Parameters:
       the disk the more performance it has (IOPS)
     Type: Number
     Default: 30
+  Neo4jAccessFromIP:
+    Description: Open HTTP and Bolt interfaces for IP CIDR
+    Type: String
+
 Mappings:
   InstanceTypes:
     spot.medium: # for testing
@@ -331,12 +335,18 @@ Conditions:
   SlowQueryLogEnabled: !Not [ !Equals [!Ref SlowQueryLog, "disabled"]]
   SlowQueryLogReplicaEnabled: !And [ !Condition SlowQueryLogEnabled, !Condition ReplicasEnabled]
   CreateBatchEnv: !Equals [!Ref BackupBatchQueueARN, ""]
+  IsPublicAccessible: !Not [!Equals [!Ref Neo4jAccessFromIP, ""]]
 Resources:
   Neo4jCluster:
     Type: AWS::ECS::Cluster
   Neo4jReplicas:
     Condition: ReplicasEnabled
     Type: AWS::ECS::Cluster
+  Neo4jClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Neo4j Client Security Group, which has access to the Neo4j Cluster
+      VpcId: !Ref "VpcId"
   Neo4jSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -388,23 +398,43 @@ Resources:
       ToPort: "7000"
       SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
       Description: Neo4j Raft communication between nodes
-  Neo4jSecurityGroupHTTPinbound:
+  Neo4jSecurityGroupHTTPInboundFromClient:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
       FromPort: "7473"
       ToPort: "7474"
-      CidrIp: 0.0.0.0/0
+      SourceSecurityGroupId: !Ref "Neo4jClientSecurityGroup"
       Description: Neo4j HTTP(S) external access
-  Neo4jSecurityGroupBoltInbound:
+  Neo4jSecurityGroupBoltInboundFromClient:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
       FromPort: "7687"
       ToPort: "7687"
-      CidrIp: 0.0.0.0/0
+      SourceSecurityGroupId: !Ref "Neo4jClientSecurityGroup"
+      Description: Neo4j Bolt communication from client to cluster
+  Neo4jSecurityGroupHTTPinbound:
+    Condition: IsPublicAccessible
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref "Neo4jSecurityGroup"
+      IpProtocol: tcp
+      FromPort: "7473"
+      ToPort: "7474"
+      CidrIp: !Ref Neo4jAccessFromIP
+      Description: Neo4j HTTP(S) external access
+  Neo4jSecurityGroupBoltInbound:
+    Condition: IsPublicAccessible
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref "Neo4jSecurityGroup"
+      IpProtocol: tcp
+      FromPort: "7687"
+      ToPort: "7687"
+      CidrIp: !Ref Neo4jAccessFromIP
       Description: Neo4j Bolt external access
   Neo4jSecurityGroupBackupsInbound:
     Type: AWS::EC2::SecurityGroupIngress
