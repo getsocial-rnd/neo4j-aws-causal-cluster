@@ -20,15 +20,15 @@ fi
 
 # query to get list of nodes in the format:
 # http, role
-# "http://10.0.y.x:7474", "FOLLOWER"
-# "http://10.0.y.x:7474", "LEADER"
-# "http://10.0.y.x:7474", "READ_REPLICA"
-# "http://10.0.y.x:7474", "FOLLOWER"
-COLUMNS="http, role"
-QUERY="call dbms.cluster.overview() YIELD addresses, role return addresses[1] as $COLUMNS;"
+# "http://10.0.y.x:7474", {"neo4j":"LEADER","system":"FOLLOWER"}
+# "http://10.0.y.x:7474", {"neo4j":"FOLLOWER","system":"FOLLOWER"}
+# "http://10.0.y.x:7474", {"neo4j":"FOLLOWER","system":"LEADER"}
+COLUMNS="http, databases"
+QUERY="call dbms.cluster.overview() YIELD addresses, databases return addresses[1] as $COLUMNS;"
 
+## TODO: fix healthcheck command
 # save nodes as array
-readarray -t nodes < <(echo $QUERY | /var/lib/neo4j/bin/cypher-shell --non-interactive --format plain -u neo4j -p $NEO4J_ADMIN_PASSWORD 2>&1)
+readarray -t nodes < <(echo $QUERY | /var/lib/neo4j/bin/cypher-shell --non-interactive --format plain -u neo4j -p $NEO4J_ADMIN_PASSWORD -a bolt://localhost:7687 2>&1)
 
 if [ "$?" -ne 0 ]; then 
     echo "Query $QUERY failed with error:"

@@ -1,26 +1,62 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Metadata: 
-  AWS::CloudFormation::Interface: 
-    ParameterGroups: 
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
       - Label: { default: "Neo4J License" }
         Parameters: [AcceptLicense]
       - Label: { default: "Global configurations" }
-        Parameters: [VpcId, KeyName, ECSAMI, NodeSecurityGroups, Neo4jAccessFromIP, SNSTopicArn]
+        Parameters:
+          - VpcId
+          - KeyName
+          - ECSAMI
+          - NodeSecurityGroups
+          - Neo4jAccessFromIP
+          - SNSTopicArn
       - Label: { default: "Core Nodes Configuration" }
-        Parameters: [ClusterInstanceType, SubnetID, DesiredCapacity, EBSSize, EBSType, SpotCoreNodes]
+        Parameters:
+          - ClusterInstanceType
+          - SubnetID
+          - DesiredCapacity
+          - EBSSize
+          - EBSIOPS
+          - EBSType
       - Label: { default: "Read replicas configuration" }
-        Parameters: [ReplicasInstanceType, ReplicasCount, ReplicasSubnetID, SpotReplicaNodes]
+        Parameters:
+          - ReplicasInstanceType
+          - ReplicasCount
+          - ReplicasSubnetID
       - Label: { default: "Docker image configurations" }
         Parameters: [DockerImage, DockerECRARN]
       - Label: { default: "Neo4j users configuration" }
-        Parameters: [AdminUser, AdminPassword, ReadOnlyUser, ReadOnlyUserPassword]
+        Parameters:
+          [AdminUser, AdminPassword, ReadOnlyUser, ReadOnlyUserPassword]
       - Label: { default: "Cloud Map discovery settings" }
-        Parameters: [CloudMapNamespaceID, CloudMapNamespaceName, Neo4jCoreSubdomain, Neo4jReplicasSubdomain]
+        Parameters:
+          - CloudMapNamespaceID
+          - CloudMapNamespaceName
+          - Neo4jCoreSubdomain
+          - Neo4jReplicasSubdomain
       - Label: { default: "Neo4J operations" }
-        Parameters: [BackupBatchQueueARN, BackupBatchInstanceType, BackupPath, BackupBatchDiskSize, BackupHourlyStoreForDays,BackupDailyStoreForDays, AllowUpgrade, IsDrainSupported, SlowQueryLog]
-    ParameterLabels: 
+        Parameters:
+          - AllowUpgrade
+          - BackupBatchQueueARN
+          - BackupBatchInstanceType
+          - BackupBatchMaxVCPUs
+          - BackupPath
+          - UpgradeMode
+          - BackupBatchDiskSize
+          - BackupBatchDiskType
+          - BackupBatchDiskIOPS
+          - BackupHourlyStoreForDays
+          - BackupDailyStoreForDays
+          - BackupBatchJobTimeout
+          - IsDrainSupported
+          - SlowQueryLog
+          - CaptureDebugLogs
+    ParameterLabels:
       AcceptLicense: { default: "Do you agree?" }
-      IsDrainSupported: { default: "Does your AWS account has system for automatic ECS instance draining deployed?"}
+      IsDrainSupported:
+        default: "Does your AWS account has system for automatic ECS instance draining deployed?"
 Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
@@ -34,16 +70,19 @@ Parameters:
     Description: Select a VPC that allows instances access to the Internet.
   SubnetID:
     Type: List<AWS::EC2::Subnet::Id>
-    Description: Select at two subnets in your selected VPC.
+    Description: "!!! Number of selected subnets must match the DesiredCapacity !!!"
   # RexRay plugin can't work with many volumes with the same name in the same AZ at the same time
   # see issue: https://github.com/rexray/rexray/issues/1314
   ReplicasSubnetID:
     Type: List<AWS::EC2::Subnet::Id>
-    Description: Subnets to place the Replicas in
+    Description: |
+      1+ number of subnets to place the Replicas in.
+      Even if no replicas used, some subnet must be provided here
+      otherwise template validation will fail ¯\_(ツ)_/¯
   ReplicasCount:
     Type: Number
     Default: 0
-    Description: "If set to 0, all other replica realted settings can be ignored"
+    Description: "If set to 0, all other replica related settings can be ignored"
   NodeSecurityGroups:
     Type: List<AWS::EC2::SecurityGroup::Id>
     Description: Select at least one additional security group to apply to Neo4j nodes (e.g. your SSH group)
@@ -57,9 +96,14 @@ Parameters:
     Type: Number
     Default: "10"
   EBSType:
-    Description: Type of data volumes to be created for Neo4j nodes.
+    Description: Type of data volumes to be created for Neo4j nodes (gp3 is recommended)
     Type: String
-    AllowedValues: [standard, io1, gp2, sc1, st1]
+    Default: gp3
+    AllowedValues: [standard, gp3, gp2, io1, io2, sc1, st1]
+  EBSIOPS:
+    Description: Custom IOPS size for a disk, applicable only for gp3, io1 and io2 disks (omitted if 0)
+    Type: Number
+    Default: 0
   DockerImage:
     Description: Docker image of Neo4j enterprise, e.g. 111111111111.dkr.ecr.us-east-1.amazonaws.com/neo:c531de3a6655b8c885330ca91b867431760392bf
     Type: String
@@ -91,7 +135,6 @@ Parameters:
     Description: |
       If "CloudMapNamespaceID" were not provided, then new CloudMap will be created.
       The name of the namespace is actually the Route53 private domain that will be used to create dns entry for Neo4J
-    Type: String
     Default: neo4j.testing
   Neo4jCoreSubdomain:
     Type: String
@@ -115,36 +158,100 @@ Parameters:
     Description: EC2 instance type for Neo4J cluster
     Type: String
     Default: t2.medium
-    AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, m3.medium, # 4gb
-                     spot.large, spot.r.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
-                     spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
-                     spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
-                    #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
-                    #  m4.10xlarge, m5.10xlarge, m5a.10xlarge,  # 160gb
-                    #  m4.16xlarge, m5.16xlarge, m5a.16xlarge,  # 256gb
-                   ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
+    AllowedValues: [
+        spot.medium,
+        t2.medium,
+        t3.medium,
+        t3a.medium,
+        m3.medium, # 4gb
+        spot.large,
+        spot.r.large,
+        t2.large,
+        t3.large,
+        t3a.large,
+        m3.large,
+        m4.large,
+        m5.large,
+        m5a.large, # 8gb
+        spot.xlarge,
+        t2.xlarge,
+        t3.xlarge,
+        t3a.xlarge,
+        m3.xlarge,
+        m4.xlarge,
+        m5.xlarge,
+        m5a.xlarge, # 16gb
+        spot.2xlarge,
+        t2.2xlarge,
+        t3.2xlarge,
+        t3a.2xlarge,
+        m3.2xlarge,
+        m4.2xlarge,
+        m5.2xlarge,
+        m5a.2xlarge, # 32gb
+      ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
+    #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
+    #  m4.10xlarge, m5.10xlarge, m5a.10xlarge,  # 160gb
+    #  m4.16xlarge, m5.16xlarge, m5a.16xlarge,  # 256gb
     ConstraintDescription: Please choose a valid instance type.
   ReplicasInstanceType:
     Description: EC2 instance type for Neo4J Replicas node
     Type: String
     Default: t2.medium
-    AllowedValues: [ spot.medium, t2.medium, t3.medium, t3a.medium, m3.medium, # 4gb
-                     spot.large, spot.r.large, t2.large, t3.large, t3a.large, m3.large, m4.large, m5.large, m5a.large, # 8gb
-                     spot.xlarge, t2.xlarge, t3.xlarge, t3a.xlarge, m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
-                     spot.2xlarge, t2.2xlarge, t3.2xlarge, t3a.2xlarge, m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
-                    #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
-                    #  m4.10xlarge, m5.10xlarge, m5a.10xlarge,  # 160gb
-                    #  m4.16xlarge, m5.16xlarge, m5a.16xlarge,  # 256gb
-                   ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
+    AllowedValues: [
+        spot.medium,
+        t2.medium,
+        t3.medium,
+        t3a.medium,
+        m3.medium, # 4gb
+        spot.large,
+        spot.r.large,
+        t2.large,
+        t3.large,
+        t3a.large,
+        m3.large,
+        m4.large,
+        m5.large,
+        m5a.large, # 8gb
+        spot.xlarge,
+        t2.xlarge,
+        t3.xlarge,
+        t3a.xlarge,
+        m3.xlarge,
+        m4.xlarge,
+        m5.xlarge,
+        m5a.xlarge, # 16gb
+        spot.2xlarge,
+        t2.2xlarge,
+        t3.2xlarge,
+        t3a.2xlarge,
+        m3.2xlarge,
+        m4.2xlarge,
+        m5.2xlarge,
+        m5a.2xlarge, # 32gb
+      ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
+    #  m4.4xlarge, m5.4xlarge, m5a.4xlarge,  # 64gb
+    #  m4.10xlarge, m5.10xlarge, m5a.10xlarge,  # 160gb
+    #  m4.16xlarge, m5.16xlarge, m5a.16xlarge,  # 256gb
     ConstraintDescription: Please choose a valid instance type.
   SNSTopicArn:
     Description: SNS topic to send CloudWatch Alarms notifications (if you leave it empty new topic will be created)
     Type: String
-  AllowUpgrade:
-    Description: Enable this flag to allow upgrading existing data to newer Neo4j version if such is found.
+  UpgradeMode:
     Type: String
-    Default: false
-    AllowedValues: [false, true]
+    Description: |
+      !!!!! Warning !!!!!!
+      This flag will break your cluster into independent nodes for a upgrade.
+      Use for upgrade ONLY. Should be used with the BackupPath
+    Default: "false"
+    AllowedValues: ["false", "true"]
+  AllowUpgrade:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: |
+      Neo4j parameter which allows automatic schema upgrades on version change.
+      This parameter is "true" if "UpgradeMode"
   AcceptLicense:
     Description: |
       In order to use Neo4j Enterprise Edition you must accept the license agreement.
@@ -166,9 +273,18 @@ Parameters:
       If drain is not supported changes to AutoScaling Group will not be applied automatically.
   SlowQueryLog:
     Type: String
-    AllowedValues: [disabled, 0ms, 100ms, 300ms, 500ms, 700ms, 1000ms, 1500ms, 2000ms]
+    AllowedValues:
+      [disabled, 0ms, 100ms, 300ms, 500ms, 700ms, 1000ms, 1500ms, 2000ms]
     Default: disabled
     Description: Log all queries slower than ...
+  CaptureDebugLogs:
+    Type: String
+    AllowedValues: [true, false]
+    Default: true
+    Description: |
+      Capture and send to CloudWatch Logs the Neo4j debug logs.
+      This will generate quite a lot of data to CLoudWatch logs,
+      but it is quite impossible to debug without it.
   BackupHourlyStoreForDays:
     Type: Number
     Default: 1
@@ -191,13 +307,34 @@ Parameters:
       (This also used to define Backup Job container memory restrictions)
     Type: String
     Default: m3.medium
-    AllowedValues: [ m3.medium, # 4gb
-                     m3.large, m4.large, m5.large, m5a.large, # 8gb
-                     m3.xlarge, m4.xlarge, m5.xlarge, m5a.xlarge, # 16gb
-                     m3.2xlarge, m4.2xlarge, m5.2xlarge, m5a.2xlarge, # 32gb
-                     r3.large, #  r3.large on spot is actually cheaper then m4.large
-                   ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
+    AllowedValues: [
+        m3.medium, # 4gb
+        m3.large,
+        m4.large,
+        m5.large,
+        m5a.large, # 8gb
+        m3.xlarge,
+        m4.xlarge,
+        m5.xlarge,
+        m5a.xlarge, # 16gb
+        m3.2xlarge,
+        m4.2xlarge,
+        m5.2xlarge,
+        m5a.2xlarge, # 32gb
+        r3.large, #  r3.large on spot is actually cheaper then m4.large
+      ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
     ConstraintDescription: Please choose a valid instance type.
+  BackupBatchMaxVCPUs:
+    Type: Number
+    Default: 1
+    Description: |
+      Defines how many servers can be launched in parallel for batch jobs.
+      If backup takes longer than 1 hour you may want more then one server to meet the schedule.
+      For example, if you choose the m3.medium server for running backup jobs, which has 1 vCPU,
+      and set MaxVCPUs to 1, this mean that only one job can be run in parallel.
+      However, if you set MaxVCPUs to 3, up to 3 servers may be started if needed.
+      And if you choose the r3.large you have to set this value to 2 at least, otherwise, batch
+      server will never start.
   BackupBatchDiskSize:
     Description: |
       Size of the disk to perform backups on. Take in mind that 
@@ -205,6 +342,20 @@ Parameters:
       the disk the more performance it has (IOPS)
     Type: Number
     Default: 30
+  BackupBatchDiskType:
+    Description: Type of data volumes to be created for Neo4j backup nodes (gp3 is recommended)
+    Type: String
+    Default: gp3
+    AllowedValues: [standard, gp3, gp2, io1, io2, sc1, st1]
+  BackupBatchDiskIOPS:
+    Description: Custom IOPS size for a disk, applicable only for gp3, io1 and io2 disks (omitted if 0)
+    Type: Number
+    Default: 0
+  BackupBatchJobTimeout:
+    Description: |
+      Timeout to complete backup job
+    Type: Number
+    Default: 3600
   Neo4jAccessFromIP:
     Description: Open HTTP and Bolt interfaces for IP CIDR
     Type: String
@@ -247,8 +398,8 @@ Mappings:
       Memory: 16gb
       vCPUs: 2
       Instances:
-      # there are also r5ad, but not completely sure
-      # it will work OK with the RexRay storage
+        # there are also r5ad, but not completely sure
+        # it will work OK with the RexRay storage
         - InstanceType: r5a.large
         - InstanceType: r5.large
         - InstanceType: r4.large
@@ -264,34 +415,34 @@ Mappings:
         - InstanceType: m5.2xlarge
         - InstanceType: m4.2xlarge
         - InstanceType: m3.2xlarge
-    t3a.medium:  { Instances: [], Memory: 4gb, vCPUs: 2 }
-    t3.medium:   { Instances: [], Memory: 4gb, vCPUs: 2 }
-    t2.medium:   { Instances: [], Memory: 4gb, vCPUs: 2 }
-    m3.medium:   { Instances: [], Memory: 4gb, vCPUs: 1 }
-    t3a.large:   { Instances: [], Memory: 8gb, vCPUs: 2 }
-    t3.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
-    t2.large:    { Instances: [], Memory: 8gb, vCPUs: 2 } 
-    m5a.large:   { Instances: [], Memory: 8gb, vCPUs: 2 }
-    m5.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
-    m4.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
-    m3.large:    { Instances: [], Memory: 8gb, vCPUs: 2 }
-    t3a.xlarge:  { Instances: [], Memory: 16gb, vCPUs: 4 }
-    t3.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
-    t2.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
-    m5a.xlarge:  { Instances: [], Memory: 16gb, vCPUs: 4 }
-    m5.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
-    m4.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
-    m3.xlarge:   { Instances: [], Memory: 16gb, vCPUs: 4 }
+    t3a.medium: { Instances: [], Memory: 4gb, vCPUs: 2 }
+    t3.medium: { Instances: [], Memory: 4gb, vCPUs: 2 }
+    t2.medium: { Instances: [], Memory: 4gb, vCPUs: 2 }
+    m3.medium: { Instances: [], Memory: 4gb, vCPUs: 1 }
+    t3a.large: { Instances: [], Memory: 8gb, vCPUs: 2 }
+    t3.large: { Instances: [], Memory: 8gb, vCPUs: 2 }
+    t2.large: { Instances: [], Memory: 8gb, vCPUs: 2 }
+    m5a.large: { Instances: [], Memory: 8gb, vCPUs: 2 }
+    m5.large: { Instances: [], Memory: 8gb, vCPUs: 2 }
+    m4.large: { Instances: [], Memory: 8gb, vCPUs: 2 }
+    m3.large: { Instances: [], Memory: 8gb, vCPUs: 2 }
+    t3a.xlarge: { Instances: [], Memory: 16gb, vCPUs: 4 }
+    t3.xlarge: { Instances: [], Memory: 16gb, vCPUs: 4 }
+    t2.xlarge: { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m5a.xlarge: { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m5.xlarge: { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m4.xlarge: { Instances: [], Memory: 16gb, vCPUs: 4 }
+    m3.xlarge: { Instances: [], Memory: 16gb, vCPUs: 4 }
     t3a.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
-    t3.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
-    t2.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
+    t3.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
+    t2.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
     m5a.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
-    m5.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
-    m4.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
-    m3.2xlarge:  { Instances: [], Memory: 32gb, vCPUs: 8 }
+    m5.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
+    m4.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
+    m3.2xlarge: { Instances: [], Memory: 32gb, vCPUs: 8 }
     ## r3.large instance as spot is actually cheaper then m4.large
     ## perfect candidate for backups for example
-    r3.large:    { Instances: [], Memory: 16gb, vCPUs: 2 }
+    r3.large: { Instances: [], Memory: 16gb, vCPUs: 2 }
   MemoryMap:
     4gb:
       ContainerMemory: 3500
@@ -322,20 +473,57 @@ Mappings:
       JavaHeap: 31g
       JavaPage: 198g
 Conditions:
-  ReplicasEnabled: !Not [!Equals [!Ref ReplicasCount, 0]]
-  PerformRestore: !Not [!Equals [!Ref BackupPath, ""]]
+  IsUpgrade: !Equals [!Ref UpgradeMode, true]
+  ReplicasEnabled:
+    !And [!Not [!Equals [!Ref ReplicasCount, 0]], !Not [Condition: IsUpgrade]]
   CreateSNSTopic: !Equals [!Ref SNSTopicArn, ""]
-  SingleMaster: !Equals [!Ref DesiredCapacity, "1"]
   AcceptedLicense: !Equals [!Ref AcceptLicense, "true"]
   CreateCloudMapNamespace: !Equals [!Ref CloudMapNamespaceID, ""]
-  SpotCore: !Or [!Equals [!Ref ClusterInstanceType, "spot.medium"], !Equals [!Ref ClusterInstanceType, "spot.large"], !Equals [!Ref ClusterInstanceType, "spot.r.large"], !Equals [!Ref ClusterInstanceType, "spot.xlarge"], !Equals [!Ref ClusterInstanceType, "spot.2xlarge"]]
-  SpotReplica: !Or [!Equals [!Ref ReplicasInstanceType, "spot.medium"], !Equals [!Ref ReplicasInstanceType, "spot.large"], !Equals [!Ref ClusterInstanceType, "spot.r.large"], !Equals [!Ref ReplicasInstanceType, "spot.xlarge"], !Equals [!Ref ReplicasInstanceType, "spot.2xlarge"]] 
+  SpotCore:
+    !Or [
+      !Equals [!Ref ClusterInstanceType, "spot.medium"],
+      !Equals [!Ref ClusterInstanceType, "spot.large"],
+      !Equals [!Ref ClusterInstanceType, "spot.r.large"],
+      !Equals [!Ref ClusterInstanceType, "spot.xlarge"],
+      !Equals [!Ref ClusterInstanceType, "spot.2xlarge"],
+    ]
+  SpotReplica:
+    !Or [
+      !Equals [!Ref ReplicasInstanceType, "spot.medium"],
+      !Equals [!Ref ReplicasInstanceType, "spot.large"],
+      !Equals [!Ref ClusterInstanceType, "spot.r.large"],
+      !Equals [!Ref ReplicasInstanceType, "spot.xlarge"],
+      !Equals [!Ref ReplicasInstanceType, "spot.2xlarge"],
+    ]
   EnableASGHook: !Equals [!Ref IsDrainSupported, "true"]
-  EnableReplicaASGHook: !And [ !Condition EnableASGHook, !Condition ReplicasEnabled]  
-  SlowQueryLogEnabled: !Not [ !Equals [!Ref SlowQueryLog, "disabled"]]
-  SlowQueryLogReplicaEnabled: !And [ !Condition SlowQueryLogEnabled, !Condition ReplicasEnabled]
+  EnableReplicaASGHook:
+    !And [!Condition EnableASGHook, !Condition ReplicasEnabled]
+  SlowQueryLogEnabled: !Not [!Equals [!Ref SlowQueryLog, "disabled"]]
+  SlowQueryLogReplicaEnabled:
+    !And [!Condition SlowQueryLogEnabled, !Condition ReplicasEnabled]
   CreateBatchEnv: !Equals [!Ref BackupBatchQueueARN, ""]
   IsPublicAccessible: !Not [!Equals [!Ref Neo4jAccessFromIP, ""]]
+  CaptureDebugLogsEnabled: !Equals [!Ref CaptureDebugLogs, true]
+  CaptureDebugLogsReplicaEnabled:
+    !And [!Condition CaptureDebugLogsEnabled, !Condition ReplicasEnabled]
+  IsIOPSSupported:
+    !And [
+      !Or [
+        !Equals [!Ref EBSType, gp3],
+        !Equals [!Ref EBSType, io1],
+        !Equals [!Ref EBSType, io2],
+      ],
+      !Not [!Equals [!Ref EBSIOPS, 0]],
+    ]
+  IsIOPSBatchSupported:
+    !And [
+      !Or [
+        !Equals [!Ref BackupBatchDiskType, gp3],
+        !Equals [!Ref BackupBatchDiskType, io1],
+        !Equals [!Ref BackupBatchDiskType, io2],
+      ],
+      !Not [!Equals [!Ref BackupBatchDiskIOPS, 0]],
+    ]
 Resources:
   Neo4jCluster:
     Type: AWS::ECS::Cluster
@@ -358,8 +546,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "7473"
-      ToPort: "7474"
+      FromPort: 7473
+      ToPort: 7474
       SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
       Description: Neo4j HTTP(S) communication between nodes
   Neo4jSecurityGroupBoltInboundFromCluster:
@@ -367,8 +555,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "7687"
-      ToPort: "7687"
+      FromPort: 7687
+      ToPort: 7687
       SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
       Description: Neo4j Bolt communication between nodes
   Neo4jSecurityGroupDiscoveryInboundFromCluster:
@@ -376,8 +564,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "5000"
-      ToPort: "5000"
+      FromPort: 5000
+      ToPort: 5000
       SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
       Description: Neo4j Discovery communication between nodes
   Neo4jSecurityGroupTransactionInboundFromCluster:
@@ -385,8 +573,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "6000"
-      ToPort: "6000"
+      FromPort: 6000
+      ToPort: 6000
       SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
       Description: Neo4j Transactions communication between nodes
   Neo4jSecurityGroupRaftInboundFromCluster:
@@ -394,8 +582,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "7000"
-      ToPort: "7000"
+      FromPort: 7000
+      ToPort: 7000
       SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
       Description: Neo4j Raft communication between nodes
   Neo4jSecurityGroupHTTPInboundFromClient:
@@ -403,8 +591,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "7473"
-      ToPort: "7474"
+      FromPort: 7473
+      ToPort: 7474
       SourceSecurityGroupId: !Ref "Neo4jClientSecurityGroup"
       Description: Neo4j HTTP(S) external access
   Neo4jSecurityGroupBoltInboundFromClient:
@@ -412,8 +600,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "7687"
-      ToPort: "7687"
+      FromPort: 7687
+      ToPort: 7687
       SourceSecurityGroupId: !Ref "Neo4jClientSecurityGroup"
       Description: Neo4j Bolt communication from client to cluster
   Neo4jSecurityGroupHTTPinbound:
@@ -422,8 +610,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "7473"
-      ToPort: "7474"
+      FromPort: 7473
+      ToPort: 7474
       CidrIp: !Ref Neo4jAccessFromIP
       Description: Neo4j HTTP(S) external access
   Neo4jSecurityGroupBoltInbound:
@@ -432,8 +620,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "7687"
-      ToPort: "7687"
+      FromPort: 7687
+      ToPort: 7687
       CidrIp: !Ref Neo4jAccessFromIP
       Description: Neo4j Bolt external access
   Neo4jSecurityGroupBackupsInbound:
@@ -441,8 +629,8 @@ Resources:
     Properties:
       GroupId: !Ref "Neo4jSecurityGroup"
       IpProtocol: tcp
-      FromPort: "6362"
-      ToPort: "6372"
+      FromPort: 6362
+      ToPort: 6372
       SourceSecurityGroupId: !Ref "Neo4jSecurityGroup"
       Description: Neo4j Backup external access
   CloudwatchLogsGroup:
@@ -471,22 +659,23 @@ Resources:
             DriverOpts:
               volumetype: !Ref EBSType
               size: !Ref EBSSize
+              iops: !If [IsIOPSSupported, !Ref EBSIOPS, !Ref AWS::NoValue]
       ContainerDefinitions:
         - Name: neo4j
-          Essential: "true"
+          Essential: true
           Image: !Ref "DockerImage"
           MemoryReservation:
             Fn::FindInMap:
               - MemoryMap
               - Fn::FindInMap:
-                - InstanceTypes
-                - !Ref "ClusterInstanceType"
-                - Memory
+                  - InstanceTypes
+                  - !Ref "ClusterInstanceType"
+                  - Memory
               - ContainerMemory
           MountPoints:
-          - ContainerPath: /neo4j
-            SourceVolume: !Sub ${AWS::StackName}-data
-            ReadOnly: false
+            - ContainerPath: /neo4j
+              SourceVolume: !Sub ${AWS::StackName}-data
+              ReadOnly: false
           PortMappings:
             # discovery port
             - ContainerPort: 5000
@@ -507,10 +696,12 @@ Resources:
             - ContainerPort: 7687
               HostPort: 7687
           Environment:
+            - Name: UPGRADE_MODE
+              Value: !Ref UpgradeMode
             - Name: CLOUDMAP_SERVICE_ID
               Value: !Ref DiscoveryServiceCoreSRV
             - Name: NEO4J_dbms_import_csv_legacy__quote__escaping
-              Value: false
+              Value: "false"
             - Name: NEO4J_causal__clustering_discovery__type
               # Value: SRV         # discovery based on the SRV record created by CloudMap
               # Value: DNS
@@ -521,46 +712,47 @@ Resources:
             - Name: NEO4J_causal__clustering_minimum__core__cluster__size__at__formation
               Value: !Ref DesiredCapacity
             - Name: NEO4J_causal__clustering_minimum__core__cluster__size__at__runtime
-              Value: 2
+              Value: "2"
             - Name: NEO4J_DATA_ROOT
               Value: /neo4j
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: NEO4J_dbms_allow__upgrade
-              Value: !Ref AllowUpgrade
+              Value: !If [IsUpgrade, "true", !Ref AllowUpgrade]
             - Name: NEO4J_dbms_mode
-              Value: CORE
+              Value: !If [IsUpgrade, "SINGLE", "CORE"]
             - Name: NEO4J_dbms_memory_heap_max__size
               Value:
                 Fn::FindInMap:
                   - MemoryMap
                   - Fn::FindInMap:
-                    - InstanceTypes
-                    - !Ref "ClusterInstanceType"
-                    - Memory
+                      - InstanceTypes
+                      - !Ref "ClusterInstanceType"
+                      - Memory
                   - JavaHeap
             - Name: NEO4J_dbms_memory_heap_initial__size
               Value:
                 Fn::FindInMap:
                   - MemoryMap
                   - Fn::FindInMap:
-                    - InstanceTypes
-                    - !Ref "ClusterInstanceType"
-                    - Memory
+                      - InstanceTypes
+                      - !Ref "ClusterInstanceType"
+                      - Memory
                   - JavaHeap
             - Name: NEO4J_dbms_memory_pagecache_size
               Value:
                 Fn::FindInMap:
                   - MemoryMap
                   - Fn::FindInMap:
-                    - InstanceTypes
-                    - !Ref "ClusterInstanceType"
-                    - Memory
+                      - InstanceTypes
+                      - !Ref "ClusterInstanceType"
+                      - Memory
                   - JavaPage
             - Name: NEO4J_ADMIN_PASSWORD
               Value: !Ref AdminPassword
             - Name: NEO4J_GUEST_AUTH
-              Value: !Join ["", [!Ref ReadOnlyUser, "/", !Ref ReadOnlyUserPassword]]
+              Value:
+                !Join ["", [!Ref ReadOnlyUser, "/", !Ref ReadOnlyUserPassword]]
             - Name: SNAPSHOT_PATH
               Value: !Ref BackupPath
             - Name: AWS_BACKUP_BUCKET
@@ -576,7 +768,7 @@ Resources:
               - Name: NEO4J_QUERY_LOG
                 Value: enabled
               - Name: NEO4J_QUERY_LOG
-                Value: disabled 
+                Value: disabled
             - !If
               - SlowQueryLogEnabled
               - Name: NEO4J_dbms_logs_query_threshold
@@ -589,35 +781,64 @@ Resources:
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref 'CloudwatchLogsGroup'
-              awslogs-region: !Ref 'AWS::Region'
+              awslogs-group: !Ref "CloudwatchLogsGroup"
+              awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: !Ref Neo4jCoreSubdomain
-          HealthCheck:
-            Command: [ CMD-SHELL, "/healthcheck.sh" ] 
-            Interval: 15
-            Retries: 10
-            StartPeriod: 300
-            Timeout: 10
-        - !If 
+          HealthCheck: !If
+            - IsUpgrade
+            - !Ref AWS::NoValue
+            # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters.html#container_definition_healthcheck
+            - Command: [CMD-SHELL, "/healthcheck.sh"]
+              # make longer intervals if restoring from backup
+              # to be sure, that container will not be killed by healthcheck
+              # during the restore
+              Interval: 30
+              Retries: 10
+              StartPeriod: 300 # 300 is a max value
+              Timeout: 15
+        - !If
           - SlowQueryLogEnabled
           - Name: tail-slowquery-log
             Image: alpine:latest
-            MemoryReservation: 100
+            MemoryReservation: 25
             Essential: true
             DependsOn:
-            - Condition: START
-              ContainerName: neo4j
+              - Condition: START
+                ContainerName: neo4j
             MountPoints:
-            - ContainerPath: /neo4j
-              SourceVolume: !Sub ${AWS::StackName}-data
-              ReadOnly: true
-            Command: [ tail, -Fn, '+1', /neo4j/logs/slow_query.log ]
+              - ContainerPath: /neo4j
+                SourceVolume: !Sub ${AWS::StackName}-data
+                ReadOnly: true
+            Command: [tail, -Fn, "+1", /neo4j/logs/slow_query.log]
             StopTimeout: 3 # tail doesn't gracefully exits on SIGTERM, so give it 3 secs to read all the remaining logs and send KILL
             LogConfiguration:
               LogDriver: awslogs
               Options:
-                awslogs-group: !Ref 'CloudwatchSlowQueryLogsGroup'
-                awslogs-region: !Ref 'AWS::Region'
+                awslogs-group: !Ref "CloudwatchSlowQueryLogsGroup"
+                awslogs-region: !Ref "AWS::Region"
+                awslogs-stream-prefix: !Ref Neo4jCoreSubdomain
+                awslogs-multiline-pattern: '^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}:\d{1,2}' # date like 2019-08-29 13:44:21.146
+          - !Ref AWS::NoValue
+        - !If
+          - CaptureDebugLogsEnabled
+          - Name: tail-debug-log
+            Image: alpine:latest
+            MemoryReservation: 25
+            Essential: true
+            DependsOn:
+              - Condition: START
+                ContainerName: neo4j
+            MountPoints:
+              - ContainerPath: /neo4j
+                SourceVolume: !Sub ${AWS::StackName}-data
+                ReadOnly: true
+            Command: [tail, -Fn, "+1", /neo4j/logs/debug.log]
+            StopTimeout: 3 # tail doesn't gracefully exits on SIGTERM, so give it 3 secs to read all the remaining logs and send KILL
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: !Ref "CloudwatchLogsGroup"
+                awslogs-region: !Ref "AWS::Region"
                 awslogs-stream-prefix: !Ref Neo4jCoreSubdomain
                 awslogs-multiline-pattern: '^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}:\d{1,2}' # date like 2019-08-29 13:44:21.146
           - !Ref AWS::NoValue
@@ -637,16 +858,16 @@ Resources:
             SourcePath: "/opt/neo4j"
       ContainerDefinitions:
         - Name: neo4j
-          Essential: "true"
+          Essential: true
           Image: !Ref "DockerImage"
           Memory:
             Fn::FindInMap:
-            - MemoryMap
-            - Fn::FindInMap:
-              - InstanceTypes
-              - !Ref "ReplicasInstanceType"
-              - Memory
-            - "ContainerMemory"
+              - MemoryMap
+              - Fn::FindInMap:
+                  - InstanceTypes
+                  - !Ref "ReplicasInstanceType"
+                  - Memory
+              - "ContainerMemory"
           MountPoints:
             - ContainerPath: /tmp/exports
               SourceVolume: exports
@@ -674,6 +895,8 @@ Resources:
             - ContainerPort: 7687
               HostPort: 7687
           Environment:
+            - Name: UPGRADE_MODE
+              Value: !Ref UpgradeMode
             - Name: CLOUDMAP_SERVICE_ID
               Value: !Ref DiscoveryServiceCoreSRV
             - Name: NEO4J_causal__clustering_discovery__type
@@ -684,44 +907,45 @@ Resources:
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: NEO4J_dbms_allow__upgrade
-              Value: !Ref AllowUpgrade
+              Value: !If [IsUpgrade, "true", !Ref AllowUpgrade]
             - Name: NEO4J_dbms_mode
               Value: READ_REPLICA
             - Name: NEO4J_dbms_memory_heap_max__size
               Value:
                 Fn::FindInMap:
-                - MemoryMap
-                - Fn::FindInMap:
-                  - InstanceTypes
-                  - !Ref "ReplicasInstanceType"
-                  - Memory
-                - "JavaHeap"
+                  - MemoryMap
+                  - Fn::FindInMap:
+                      - InstanceTypes
+                      - !Ref "ReplicasInstanceType"
+                      - Memory
+                  - "JavaHeap"
             - Name: NEO4J_dbms_memory_heap_initial__size
               Value:
                 Fn::FindInMap:
-                - MemoryMap
-                - Fn::FindInMap:
-                  - InstanceTypes
-                  - !Ref "ReplicasInstanceType"
-                  - Memory
-                - "JavaHeap"
+                  - MemoryMap
+                  - Fn::FindInMap:
+                      - InstanceTypes
+                      - !Ref "ReplicasInstanceType"
+                      - Memory
+                  - "JavaHeap"
             - Name: NEO4J_dbms_memory_pagecache_size
               Value:
                 Fn::FindInMap:
-                - MemoryMap
-                - Fn::FindInMap:
-                  - InstanceTypes
-                  - !Ref "ReplicasInstanceType"
-                  - Memory
-                - "JavaPage"
+                  - MemoryMap
+                  - Fn::FindInMap:
+                      - InstanceTypes
+                      - !Ref "ReplicasInstanceType"
+                      - Memory
+                  - "JavaPage"
             - Name: NEO4J_ADMIN_PASSWORD
               Value: !Ref AdminPassword
             - Name: NEO4J_GUEST_AUTH
-              Value: !Join ["", [!Ref ReadOnlyUser, "/", !Ref ReadOnlyUserPassword]]
+              Value:
+                !Join ["", [!Ref ReadOnlyUser, "/", !Ref ReadOnlyUserPassword]]
             # Remove read replica snapshot restoration because of the problem
-            # 2019-09-18 09:07:20.751+0000 ERROR Failed to start Neo4j: Starting Neo4j failed: Component 'org.neo4j.server.database.LifecycleManagingDatabase@7da31a40' 
-            # was successfully initialized, but failed to start. Please see the attached cause exception "Timer already cancelled.". 
-            # Starting Neo4j failed: Component 'org.neo4j.server.database.LifecycleManagingDatabase@7da31a40' was successfully initialized, 
+            # 2019-09-18 09:07:20.751+0000 ERROR Failed to start Neo4j: Starting Neo4j failed: Component 'org.neo4j.server.database.LifecycleManagingDatabase@7da31a40'
+            # was successfully initialized, but failed to start. Please see the attached cause exception "Timer already cancelled.".
+            # Starting Neo4j failed: Component 'org.neo4j.server.database.LifecycleManagingDatabase@7da31a40' was successfully initialized,
             # but failed to start. Please see the attached cause exception "Timer already cancelled.".
             # - Name: SNAPSHOT_PATH
             #   Value: !Ref BackupPath
@@ -740,7 +964,7 @@ Resources:
               - Name: NEO4J_QUERY_LOG
                 Value: enabled
               - Name: NEO4J_QUERY_LOG
-                Value: disabled 
+                Value: disabled
             - !If
               - SlowQueryLogEnabled
               - Name: NEO4J_dbms_logs_query_threshold
@@ -753,47 +977,72 @@ Resources:
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref 'CloudwatchLogsGroup'
-              awslogs-region: !Ref 'AWS::Region'
+              awslogs-group: !Ref "CloudwatchLogsGroup"
+              awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: !Ref Neo4jReplicasSubdomain
-          HealthCheck:
-            Command: [ CMD-SHELL, "/healthcheck.sh" ] 
-            Interval: 60
-            Retries: 10
-            StartPeriod: 300
-            Timeout: 10
-        - !If 
+          HealthCheck: !If
+            - IsUpgrade
+            - !Ref AWS::NoValue
+            - Command: [CMD-SHELL, "/healthcheck.sh"]
+              Interval: 60
+              Retries: 10
+              StartPeriod: 300
+              Timeout: 15
+        - !If
           - SlowQueryLogReplicaEnabled
           - Name: tail-slowquery-log
             Image: alpine:latest
-            MemoryReservation: 100
+            MemoryReservation: 25
             Essential: true
             DependsOn:
-            - Condition: START
-              ContainerName: neo4j
-            Command: [ tail, -Fn, '+1', /neo4j/logs/slow_query.log ]
+              - Condition: START
+                ContainerName: neo4j
+            Command: [tail, -Fn, "+1", /neo4j/logs/slow_query.log]
             StopTimeout: 3
             MountPoints:
-            - ContainerPath: /neo4j
-              SourceVolume: data
-              ReadOnly: true
+              - ContainerPath: /neo4j
+                SourceVolume: data
+                ReadOnly: true
             LogConfiguration:
               LogDriver: awslogs
               Options:
-                awslogs-group: !Ref 'CloudwatchSlowQueryLogsGroup'
-                awslogs-region: !Ref 'AWS::Region'
+                awslogs-group: !Ref "CloudwatchSlowQueryLogsGroup"
+                awslogs-region: !Ref "AWS::Region"
+                awslogs-stream-prefix: !Ref Neo4jReplicasSubdomain
+                awslogs-multiline-pattern: '^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}:\d{1,2}' # date like 2019-08-29 13:44:21.146
+          - !Ref AWS::NoValue
+        - !If
+          - CaptureDebugLogsReplicaEnabled
+          - Name: tail-debug-log
+            Image: alpine:latest
+            MemoryReservation: 25
+            Essential: true
+            DependsOn:
+              - Condition: START
+                ContainerName: neo4j
+            MountPoints:
+              - ContainerPath: /neo4j
+                SourceVolume: data
+                ReadOnly: true
+            Command: [tail, -Fn, "+1", /neo4j/logs/debug.log]
+            StopTimeout: 3 # tail doesn't gracefully exits on SIGTERM, so give it 3 secs to read all the remaining logs and send KILL
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: !Ref "CloudwatchLogsGroup"
+                awslogs-region: !Ref "AWS::Region"
                 awslogs-stream-prefix: !Ref Neo4jReplicasSubdomain
                 awslogs-multiline-pattern: '^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}:\d{1,2}' # date like 2019-08-29 13:44:21.146
           - !Ref AWS::NoValue
   DiscoveryNamespace:
     Condition: CreateCloudMapNamespace
     Type: AWS::ServiceDiscovery::PrivateDnsNamespace
-    Properties: 
+    Properties:
       Description: Neo4J CloudMap discovery service
       Name: !Ref CloudMapNamespaceName
       Vpc: !Ref VpcId
   DiscoveryServiceCoreSRV:
-    Type: 'AWS::ServiceDiscovery::Service'
+    Type: "AWS::ServiceDiscovery::Service"
     Properties:
       Description: CloudMap DNS based discovery for Neo4J
       DnsConfig:
@@ -804,21 +1053,31 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
       Name: !Sub discovery.${Neo4jCoreSubdomain}
-      NamespaceId: !If [CreateCloudMapNamespace, !Ref DiscoveryNamespace, !Ref CloudMapNamespaceID]
+      NamespaceId:
+        !If [
+          CreateCloudMapNamespace,
+          !Ref DiscoveryNamespace,
+          !Ref CloudMapNamespaceID,
+        ]
   DiscoveryServiceCoreA:
-    Type: 'AWS::ServiceDiscovery::Service'
+    Type: "AWS::ServiceDiscovery::Service"
     Properties:
       Description: CloudMap DNS based discovery for Neo4J
       DnsConfig:
-        DnsRecords: 
+        DnsRecords:
           - Type: A
             TTL: 10
         RoutingPolicy: MULTIVALUE
-      Name: !Ref Neo4jCoreSubdomain 
-      NamespaceId: !If [CreateCloudMapNamespace, !Ref DiscoveryNamespace, !Ref CloudMapNamespaceID]
+      Name: !Ref Neo4jCoreSubdomain
+      NamespaceId:
+        !If [
+          CreateCloudMapNamespace,
+          !Ref DiscoveryNamespace,
+          !Ref CloudMapNamespaceID,
+        ]
   DiscoveryServiceReplicaA:
     Condition: ReplicasEnabled
-    Type: 'AWS::ServiceDiscovery::Service'
+    Type: "AWS::ServiceDiscovery::Service"
     Properties:
       Description: CloudMap DNS based discovery for Neo4J
       DnsConfig:
@@ -827,10 +1086,15 @@ Resources:
             TTL: 10
         RoutingPolicy: MULTIVALUE
       Name: !Ref Neo4jReplicasSubdomain
-      NamespaceId: !If [CreateCloudMapNamespace, !Ref DiscoveryNamespace, !Ref CloudMapNamespaceID]
+      NamespaceId:
+        !If [
+          CreateCloudMapNamespace,
+          !Ref DiscoveryNamespace,
+          !Ref CloudMapNamespaceID,
+        ]
   DiscoveryServiceReplicaSRV:
     Condition: ReplicasEnabled
-    Type: 'AWS::ServiceDiscovery::Service'
+    Type: "AWS::ServiceDiscovery::Service"
     Properties:
       Description: CloudMap DNS based discovery for Neo4J
       DnsConfig:
@@ -841,11 +1105,16 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
       Name: !Sub discovery.${Neo4jReplicasSubdomain}
-      NamespaceId: !If [CreateCloudMapNamespace, !Ref DiscoveryNamespace, !Ref CloudMapNamespaceID]
+      NamespaceId:
+        !If [
+          CreateCloudMapNamespace,
+          !Ref DiscoveryNamespace,
+          !Ref CloudMapNamespaceID,
+        ]
   Neo4jClusterAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      VPCZoneIdentifier: !Ref 'SubnetID'
+      VPCZoneIdentifier: !Ref "SubnetID"
       MinSize: "2"
       MaxSize: !Ref "DesiredCapacity"
       DesiredCapacity: !Ref "DesiredCapacity"
@@ -856,28 +1125,20 @@ Resources:
           LaunchTemplateId: !Ref Neo4jClusterLanuchTemplate
       MixedInstancesPolicy: !If
         - SpotCore
-        - 
-          LaunchTemplate:
+        - LaunchTemplate:
             LaunchTemplateSpecification:
               Version: !GetAtt Neo4jClusterLanuchTemplate.LatestVersionNumber
               LaunchTemplateId: !Ref Neo4jClusterLanuchTemplate
-            Overrides: !FindInMap [ InstanceTypes, !Ref  ClusterInstanceType, Instances]
+            Overrides:
+              !FindInMap [InstanceTypes, !Ref ClusterInstanceType, Instances]
           InstancesDistribution:
             OnDemandAllocationStrategy: prioritized
             OnDemandBaseCapacity: 0
             OnDemandPercentageAboveBaseCapacity: 0 # all spot instances
-            SpotAllocationStrategy: lowest-price
-            # SpotInstancePools ensures the HA of spot instances
-            # basically this dictates the number of instances with different
-            # spot prices to be launched, to ensure the least impact
-            # on your instances in case of price change.
-            # Each instance type in each AZ is a valid pool
-            # so maximum number of pools is `number of instances types * number of az`
-            # basically 4 instances types in 4 AZ makes 16 different pools
-            SpotInstancePools: !Ref "DesiredCapacity"
+            SpotAllocationStrategy: capacity-optimized
             # SpotMaxPrices sets the maximum price you are willing to pay for the instance
             # setting the null value (AWS::NoValue) ensures the MaxPrice is the same
-            # as actuall on demand price for that instance type.
+            # as actual on demand price for that instance type.
             # If you change this value, it can't be changed back :(
             SpotMaxPrice: !Ref AWS::NoValue
         - !Ref AWS::NoValue
@@ -891,14 +1152,14 @@ Resources:
     CreationPolicy:
       ResourceSignal:
         Timeout: PT15M
-    UpdatePolicy: !If 
-      - EnableASGHook 
+    UpdatePolicy: !If
+      - EnableASGHook
       - AutoScalingRollingUpdate:
           MaxBatchSize: 1
           MinInstancesInService: 2
           PauseTime: PT10M
           WaitOnResourceSignals: True
-      - AutoScalingRollingUpdate: !Ref AWS::NoValue 
+      - AutoScalingRollingUpdate: !Ref AWS::NoValue
   CoreASGTerminateHook:
     Condition: EnableASGHook
     Type: "AWS::AutoScaling::LifecycleHook"
@@ -922,18 +1183,17 @@ Resources:
           LaunchTemplateId: !Ref Neo4jReplicasLanuchTemplate
       MixedInstancesPolicy: !If
         - SpotReplica
-        -
-          LaunchTemplate:
+        - LaunchTemplate:
             LaunchTemplateSpecification:
               Version: !GetAtt Neo4jReplicasLanuchTemplate.LatestVersionNumber
               LaunchTemplateId: !Ref Neo4jReplicasLanuchTemplate
-            Overrides: !FindInMap [ InstanceTypes, !Ref ReplicasInstanceType, Instances ] 
+            Overrides:
+              !FindInMap [InstanceTypes, !Ref ReplicasInstanceType, Instances]
           InstancesDistribution:
             OnDemandAllocationStrategy: prioritized
             OnDemandBaseCapacity: 0
             OnDemandPercentageAboveBaseCapacity: 0 # all spot instances
-            SpotAllocationStrategy: lowest-price
-            SpotInstancePools: !Ref "ReplicasCount"
+            SpotAllocationStrategy: capacity-optimized
             SpotMaxPrice: !Ref AWS::NoValue
         - !Ref AWS::NoValue
       Tags:
@@ -949,14 +1209,14 @@ Resources:
     CreationPolicy:
       ResourceSignal:
         Timeout: PT15M
-    UpdatePolicy: !If 
-      - EnableReplicaASGHook 
+    UpdatePolicy: !If
+      - EnableReplicaASGHook
       - AutoScalingRollingUpdate:
           MaxBatchSize: 1
           MinInstancesInService: 0
           PauseTime: PT10M
           WaitOnResourceSignals: True
-      - AutoScalingRollingUpdate: !Ref AWS::NoValue 
+      - AutoScalingRollingUpdate: !Ref AWS::NoValue
   ReplicaASGTerminateHook:
     Condition: EnableReplicaASGHook
     Type: "AWS::AutoScaling::LifecycleHook"
@@ -969,11 +1229,11 @@ Resources:
     Type: "AWS::EC2::LaunchTemplate"
     Properties:
       LaunchTemplateData:
-        SecurityGroupIds: !Split      # this hack is made to append to the list :/
-        - ","
-        - !Sub
-          - "${idList},${Neo4jSecurityGroup}"
-          - idList: !Join [",", !Ref "NodeSecurityGroups"]
+        SecurityGroupIds: !Split # this hack is made to append to the list :/
+          - ","
+          - !Sub
+            - "${idList},${Neo4jSecurityGroup}"
+            - idList: !Join [",", !Ref "NodeSecurityGroups"]
         UserData:
           Fn::Base64: !Sub |
             #cloud-config
@@ -983,6 +1243,7 @@ Resources:
             - htop
             - vim
             - amazon-ssm-agent
+            - awscli
             write_files:
               - path: /etc/ecs/ecs.config
                 append: true
@@ -998,19 +1259,25 @@ Resources:
             runcmd:
               - [ systemctl, enable, amazon-ssm-agent ]
               - [ systemctl, start,  amazon-ssm-agent ]
-              - [ docker, plugin, install, rexray/ebs, --grant-all-permissions, LINUX_VOLUME_ROOTPATH=/, LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_MOUNT_ROOTPATH=/ ]
+              - docker plugin install rexray/ebs --grant-all-permissions LINUX_VOLUME_ROOTPATH=/ LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_MOUNT_ROOTPATH=/
+              # retry plugin installation if it wasn't found
+              # because we seen some errors because of the docker hub rate limiting
+              - docker plugin ls | grep 'rexray/ebs' || (sleep 5; docker plugin install rexray/ebs --grant-all-permissions LINUX_VOLUME_ROOTPATH=/ LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_MOUNT_ROOTPATH=/)
+              - docker plugin ls | grep 'rexray/ebs' || (sleep 10; docker plugin install rexray/ebs --grant-all-permissions LINUX_VOLUME_ROOTPATH=/ LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_MOUNT_ROOTPATH=/)
+              # mark instance as unhealthy if plugin is still not installed
+              - docker plugin ls | grep 'rexray/ebs' || (aws autoscaling --region ${AWS::Region} set-instance-health --instance-id {{ v1.instance_id }} --health-status Unhealthy; exit 1)
               - /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource Neo4jClusterAutoScalingGroup --region ${AWS::Region}
         BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            DeleteOnTermination: true
-            VolumeSize: 30
-            VolumeType: gp2
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              VolumeSize: 30
+              VolumeType: gp2
         IamInstanceProfile:
           Name: !Ref Neo4jInstanceProfile
-        KeyName: !Ref 'KeyName'
+        KeyName: !Ref "KeyName"
         ImageId: !Ref ECSAMI
-        InstanceType: !Ref 'ClusterInstanceType'
+        InstanceType: !Ref "ClusterInstanceType"
         Monitoring:
           Enabled: true
   Neo4jReplicasLanuchTemplate:
@@ -1018,11 +1285,11 @@ Resources:
     Type: "AWS::EC2::LaunchTemplate"
     Properties:
       LaunchTemplateData:
-        SecurityGroupIds: !Split      # this hack is made to append to the list :/
-        - ","
-        - !Sub
-          - "${idList},${Neo4jSecurityGroup}"
-          - idList: !Join [",", !Ref "NodeSecurityGroups"]
+        SecurityGroupIds: !Split # this hack is made to append to the list :/
+          - ","
+          - !Sub
+            - "${idList},${Neo4jSecurityGroup}"
+            - idList: !Join [",", !Ref "NodeSecurityGroups"]
         UserData:
           Fn::Base64: !Sub |
             #cloud-config
@@ -1050,33 +1317,33 @@ Resources:
               - [ docker, plugin, install, rexray/ebs, --grant-all-permissions, LINUX_VOLUME_ROOTPATH=/, LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_MOUNT_ROOTPATH=/ ]
               - /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource Neo4jReplicasAutoScalingGroup --region ${AWS::Region}
         BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            DeleteOnTermination: true
-            VolumeSize: !Ref EBSSize 
-            VolumeType: gp2
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              VolumeSize: !Ref EBSSize
+              VolumeType: gp2
         IamInstanceProfile:
           Name: !Ref Neo4jInstanceProfile
-        KeyName: !Ref 'KeyName'
+        KeyName: !Ref "KeyName"
         ImageId: !Ref ECSAMI
-        InstanceType: !Ref 'ReplicasInstanceType'
+        InstanceType: !Ref "ReplicasInstanceType"
         Monitoring:
           Enabled: true
   Neo4jClusterECSservice:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref "Neo4jCluster"
-      DesiredCount: !Ref "DesiredCapacity"
+      DesiredCount: !If [IsUpgrade, 1, !Ref "DesiredCapacity"]
       DeploymentConfiguration:
-        MinimumHealthyPercent: !If [SingleMaster, "0", "50"]
-        MaximumPercent: "100"
+        MinimumHealthyPercent: !If [IsUpgrade, 0, 50]
+        MaximumPercent: 100
       TaskDefinition: !Ref "Neo4jClusterTask"
-      PlacementConstraints: [ Type: distinctInstance ] ## aka OneTaskPerHost
+      PlacementConstraints: [Type: distinctInstance] ## aka OneTaskPerHost
       PlacementStrategies:
-      - Type: spread
-        Field: attribute:ecs.availability-zone
-      - Type: spread
-        Field: instanceId
+        - Type: spread
+          Field: attribute:ecs.availability-zone
+        - Type: spread
+          Field: instanceId
       ServiceRegistries:
         - RegistryArn: !GetAtt DiscoveryServiceCoreSRV.Arn
           ContainerName: neo4j
@@ -1089,15 +1356,15 @@ Resources:
       Cluster: !Ref "Neo4jReplicas"
       DesiredCount: !Ref ReplicasCount
       DeploymentConfiguration:
-        MinimumHealthyPercent: "0"
-        MaximumPercent: "100"
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
       TaskDefinition: !Ref "Neo4jReplicasTask"
-      PlacementConstraints: [ Type: distinctInstance ] ## aka OneTaskPerHost
+      PlacementConstraints: [Type: distinctInstance] ## aka OneTaskPerHost
       PlacementStrategies:
-      - Type: spread
-        Field: attribute:ecs.availability-zone
-      - Type: spread
-        Field: instanceId
+        - Type: spread
+          Field: attribute:ecs.availability-zone
+        - Type: spread
+          Field: instanceId
       ServiceRegistries:
         - RegistryArn: !GetAtt DiscoveryServiceReplicaSRV.Arn
           ContainerName: neo4j
@@ -1114,7 +1381,7 @@ Resources:
             Resource: !Sub "arn:aws:s3:::${BackupPath}"
       Roles:
         - !Ref ECSTaskRole
-        - !Ref EC2Role 
+        - !Ref EC2Role
   S3BackupPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -1129,10 +1396,11 @@ Resources:
             Action:
               - "s3:PutObject"
               - "s3:GetObject"
+              - "s3:DeleteObject"
             Resource: !Sub "${BackupBucket.Arn}/*"
       Roles:
         - !Ref ECSTaskRole
-        - !Ref EC2Role 
+        - !Ref EC2Role
   ServiceDiscoveryPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -1144,7 +1412,19 @@ Resources:
             Resource: "*"
       Roles:
         - !Ref ECSTaskRole
-        - !Ref EC2Role  
+        - !Ref EC2Role
+  ASGHealthPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${AWS::StackName}-asg-set-health-access"
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - "autoscaling:SetInstanceHealth"
+            Resource: !Sub arn:aws:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/${Neo4jClusterAutoScalingGroup}
+      Roles:
+        - !Ref EC2Role
   ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1219,14 +1499,18 @@ Resources:
           PolicyDocument:
             Statement:
               - Effect: Allow
-                Action: 
+                Action:
                   - "logs:CreateLogStream"
                   - "logs:PutLogEvents"
                   - "logs:DescribeLogStreams"
-                Resource: 
+                Resource:
                   - !GetAtt CloudwatchLogsGroup.Arn
-                  - !If [SlowQueryLogEnabled, !GetAtt CloudwatchSlowQueryLogsGroup.Arn, !Ref "AWS::NoValue"]
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/batch/job:* 
+                  - !If [
+                      SlowQueryLogEnabled,
+                      !GetAtt CloudwatchSlowQueryLogsGroup.Arn,
+                      !Ref "AWS::NoValue",
+                    ]
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/batch/job:*
   Neo4jInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -1234,78 +1518,74 @@ Resources:
       Roles: [!Ref "EC2Role"]
   BatchServiceRole:
     Condition: CreateBatchEnv
-    Type: 'AWS::IAM::Role'
+    Type: "AWS::IAM::Role"
     Properties:
       AssumeRolePolicyDocument:
         Statement:
-          - Effect: 'Allow'
+          - Effect: "Allow"
             Principal:
-              Service: 'batch.amazonaws.com'
-            Action: 'sts:AssumeRole'
+              Service: "batch.amazonaws.com"
+            Action: "sts:AssumeRole"
       ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole'
+        - "arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole"
   SpotFleetRole:
     Condition: CreateBatchEnv
-    Type: 'AWS::IAM::Role'
+    Type: "AWS::IAM::Role"
     Properties:
       AssumeRolePolicyDocument:
         Statement:
-          - Effect: 'Allow'
+          - Effect: "Allow"
             Principal:
-              Service: 'spotfleet.amazonaws.com'
-            Action: 'sts:AssumeRole'
+              Service: "spotfleet.amazonaws.com"
+            Action: "sts:AssumeRole"
       ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole'
-  Neo4jBatchLanuchTemplate: 
-    # we need to create launch template, to extend disk size 
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole"
+  Neo4jBatchLanuchTemplate:
+    # we need to create launch template, to extend disk size
     # and we cannot reuse existing templates, because user data
     # has to be in mime-mulitpart format
     # https://docs.aws.amazon.com/batch/latest/userguide/launch-templates.html
     Type: "AWS::EC2::LaunchTemplate"
     Properties:
       LaunchTemplateData:
-        SecurityGroupIds: !Split      # this hack is made to append to the list :/
-        - ","
-        - !Sub
-          - "${idList},${Neo4jSecurityGroup}"
-          - idList: !Join [",", !Ref "NodeSecurityGroups"]
+        SecurityGroupIds: !Split # this hack is made to append to the list :/
+          - ","
+          - !Sub
+            - "${idList},${Neo4jSecurityGroup}"
+            - idList: !Join [",", !Ref "NodeSecurityGroups"]
         BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            DeleteOnTermination: true
-            VolumeSize: !Ref BackupBatchDiskSize
-            VolumeType: gp2
-        KeyName: !Ref 'KeyName'
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              VolumeSize: !Ref BackupBatchDiskSize
+              VolumeType: !Ref BackupBatchDiskType
+              Iops: !If [IsIOPSBatchSupported, !Ref BackupBatchDiskIOPS, !Ref AWS::NoValue]
+        KeyName: !Ref "KeyName"
         ImageId: !Ref ECSAMI
         TagSpecifications:
-        - ResourceType: volume
-          Tags: 
-            - Key: Name
-              Value: !Sub ${AWS::StackName}-batch
-            - Key: Stack
-              Value: !Ref AWS::StackName
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-batch
+              - Key: Stack
+                Value: !Ref AWS::StackName
   BatchCompute:
     Condition: CreateBatchEnv
     Type: "AWS::Batch::ComputeEnvironment"
     Properties:
       Type: Managed
-      ServiceRole: !Ref BatchServiceRole
-      ComputeResources: 
-        Subnets: !If [ReplicasEnabled, !Ref ReplicasSubnetID, !Ref SubnetID] 
+      ServiceRole: !GetAtt BatchServiceRole.Arn
+      ComputeResources:
+        Subnets: !If [ReplicasEnabled, !Ref ReplicasSubnetID, !Ref SubnetID]
         Type: SPOT
-        LaunchTemplate: 
+        LaunchTemplate:
           Version: !GetAtt Neo4jBatchLanuchTemplate.LatestVersionNumber
           LaunchTemplateId: !Ref Neo4jBatchLanuchTemplate
         AllocationStrategy: BEST_FIT
-        DesiredvCpus: 0
         MinvCpus: 0
-        MaxvCpus:           
-          Fn::FindInMap:
-            - InstanceTypes
-            - !Ref "BackupBatchInstanceType"
-            - vCPUs
+        MaxvCpus: !Ref BackupBatchMaxVCPUs
         InstanceRole: !Ref Neo4jInstanceProfile
-        SpotIamFleetRole: !Ref SpotFleetRole 
+        SpotIamFleetRole: !GetAtt SpotFleetRole.Arn
         InstanceTypes: [!Ref BackupBatchInstanceType]
         Tags:
           Name: !Sub ${AWS::StackName}-batch
@@ -1317,13 +1597,12 @@ Resources:
     Condition: CreateBatchEnv
     Type: "AWS::Batch::JobQueue"
     Properties:
-      ComputeEnvironmentOrder: 
+      ComputeEnvironmentOrder:
         - ComputeEnvironment: !Ref BatchCompute
           Order: 1
       Priority: 1
       State: "ENABLED"
-      JobQueueName: !Sub "${AWS::StackName}-backup" 
-    DependsOn: BatchCompute
+      JobQueueName: !Sub "${AWS::StackName}-backup"
   BackupJob:
     Type: AWS::Batch::JobDefinition
     Properties:
@@ -1332,19 +1611,19 @@ Resources:
       RetryStrategy:
         Attempts: 5
       Timeout:
-        AttemptDurationSeconds: 10800
+        AttemptDurationSeconds: !Ref BackupBatchJobTimeout
       ContainerProperties:
         JobRoleArn: !GetAtt ECSTaskRole.Arn
         Command: [backup]
         Memory:
           Fn::FindInMap:
-          - MemoryMap
-          - Fn::FindInMap:
-            - InstanceTypes
-            - !Ref "BackupBatchInstanceType"
-            - Memory
-          - "ContainerMemory"
-        Vcpus: 
+            - MemoryMap
+            - Fn::FindInMap:
+                - InstanceTypes
+                - !Ref "BackupBatchInstanceType"
+                - Memory
+            - "ContainerMemory"
+        Vcpus:
           Fn::FindInMap:
             - InstanceTypes
             - !Ref "BackupBatchInstanceType"
@@ -1353,7 +1632,7 @@ Resources:
         Volumes:
           - Name: backups-volume
             Host:
-                SourcePath: /opt/backups 
+              SourcePath: /opt/backups
         MountPoints:
           - ContainerPath: /tmp
             ReadOnly: false
@@ -1364,27 +1643,30 @@ Resources:
           - Name: PAGE_CACHE
             Value:
               Fn::FindInMap:
-              - MemoryMap
-              - Fn::FindInMap:
-                - InstanceTypes
-                - !Ref "BackupBatchInstanceType"
-                - Memory
-              - "JavaPage"
+                - MemoryMap
+                - Fn::FindInMap:
+                    - InstanceTypes
+                    - !Ref "BackupBatchInstanceType"
+                    - Memory
+                - "JavaPage"
           - Name: HEAP_SIZE
             Value:
               Fn::FindInMap:
-              - MemoryMap
-              - Fn::FindInMap:
-                - InstanceTypes
-                - !Ref "BackupBatchInstanceType"
-                - Memory
-              - "JavaHeap"
-          - Name: BACKUP_DIR
-            Value: "/tmp"
+                - MemoryMap
+                - Fn::FindInMap:
+                    - InstanceTypes
+                    - !Ref "BackupBatchInstanceType"
+                    - Memory
+                - "JavaHeap"
           - Name: BACKUP_FROM
             Value: discovery
           - Name: CLOUDMAP_SERVICE_ID
-            Value: !If [ReplicasEnabled, !Ref DiscoveryServiceReplicaSRV , !Ref DiscoveryServiceCoreSRV ]
+            Value:
+              !If [
+                ReplicasEnabled,
+                !Ref DiscoveryServiceReplicaSRV,
+                !Ref DiscoveryServiceCoreSRV,
+              ]
           - Name: AWS_BACKUP_BUCKET
             Value: !Ref BackupBucket
           - Name: NEO4J_ACCEPT_LICENSE_AGREEMENT
@@ -1396,17 +1678,19 @@ Resources:
   BackupBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub "${AWS::StackName}-cluster-backup"
+      # do not set bucket name to avoid conflicts
+      # BucketName: !Sub "${AWS::StackName}-cluster-backup"
       AccessControl: Private
       LifecycleConfiguration:
         Rules:
           - ExpirationInDays: !Ref BackupHourlyStoreForDays
-            Id: !Sub "hourly-snapshots-expiration"
+            Id: "hourly-snapshots-expiration"
             Prefix: hourly/
             Status: Enabled
           - ExpirationInDays: !Ref BackupDailyStoreForDays
-            Id: !Sub "daily-snapshots-expiration"
+            Id: "daily-snapshots-expiration"
             Prefix: daily/
             Status: Enabled
   BackupEventRule:
@@ -1417,7 +1701,7 @@ Resources:
       ScheduleExpression: rate(1 hour)
       State: ENABLED
       Targets:
-        - Arn: !If [ CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN ]
+        - Arn: !If [CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN]
           Id: !Sub "${AWS::StackName}-backup-cluster"
           RoleArn: !GetAtt BackupEventRole.Arn
           BatchParameters:
@@ -1427,25 +1711,23 @@ Resources:
     Type: "AWS::Events::Rule"
     Properties:
       Name: !Sub "${AWS::StackName}-backup-batch-job-monitor"
-      Description: "Event to notify us of changed status of ECS Task"
+      Description: "Event to track failed backup jobs"
       State: ENABLED
       EventPattern:
         source: ["aws.batch"]
         detail-type: ["Batch Job State Change"]
         detail:
-          jobQueue: [ !Ref BatchQueue ]
+          jobQueue:
+            - !If [CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN]
           status: ["FAILED"]
-      Targets:
-      - Arn: !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
-        Id: !Sub "${AWS::StackName}-backup-batch-job-monitor"
   BackupFailAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      EvaluationPeriods: "1"
+      EvaluationPeriods: 1
       Statistic: Sum
-      Threshold: "0"
+      Threshold: 0
       AlarmDescription: Backup Job Failed
-      Period: "300"
+      Period: 300
       Namespace: AWS/Events
       Dimensions:
         - Name: RuleName
@@ -1471,7 +1753,15 @@ Resources:
               - Effect: Allow
                 Action:
                   - "batch:SubmitJob"
-                Resource: [ !Ref BackupJob, !If [ CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN ]]
+                Resource:
+                  [
+                    !Ref BackupJob,
+                    !If [
+                      CreateBatchEnv,
+                      !Ref BatchQueue,
+                      !Ref BackupBatchQueueARN,
+                    ],
+                  ]
   Neo4jSNSTopic:
     Type: AWS::SNS::Topic
     Condition: CreateSNSTopic
@@ -1488,7 +1778,7 @@ Resources:
       Statistic: Average
       Period: 60
       EvaluationPeriods: 3
-      Threshold: 70
+      Threshold: 90
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
         - !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
@@ -1548,40 +1838,40 @@ Resources:
   Neo4jRunningCoresAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${AWS::StackName}-running-neo4j-cores-count" 
+      AlarmName: !Sub "${AWS::StackName}-running-neo4j-cores-count"
       AlarmDescription: !Sub "${AWS::StackName} running not enough Neo4j core nodes to sustain the cluster"
       Namespace: ECS/ContainerInsights
       MetricName: RunningTaskCount
       Dimensions:
-      - Name: ServiceName
-        Value: !GetAtt Neo4jClusterECSservice.Name
-      - Name: ClusterName
-        Value: !Ref Neo4jCluster
+        - Name: ServiceName
+          Value: !GetAtt Neo4jClusterECSservice.Name
+        - Name: ClusterName
+          Value: !Ref Neo4jCluster
       Statistic: Minimum
       Period: 60
       EvaluationPeriods: 2
       Threshold: 2 # same as NEO4J_causal__clustering_minimum__core__cluster__size__at__runtime
-      ComparisonOperator: LessThanThreshold 
+      ComparisonOperator: LessThanThreshold
       AlarmActions:
         - !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
   Neo4jRunningReplicasAlarm:
     Condition: ReplicasEnabled
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${AWS::StackName}-running-neo4j-replicas-count" 
+      AlarmName: !Sub "${AWS::StackName}-running-neo4j-replicas-count"
       AlarmDescription: !Sub "${AWS::StackName} number of running  Neo4j replica nodes are smaller than desired"
       Namespace: ECS/ContainerInsights
       MetricName: RunningTaskCount
       Dimensions:
-      - Name: ServiceName
-        Value: !GetAtt Neo4jReplicasECSservice.Name
-      - Name: ClusterName
-        Value: !Ref Neo4jReplicas
+        - Name: ServiceName
+          Value: !GetAtt Neo4jReplicasECSservice.Name
+        - Name: ClusterName
+          Value: !Ref Neo4jReplicas
       Statistic: Minimum
       Period: 60
       EvaluationPeriods: 2
       Threshold: !Ref ReplicasCount # same as NEO4J_causal__clustering_minimum__core__cluster__size__at__runtime
-      ComparisonOperator: LessThanThreshold 
+      ComparisonOperator: LessThanThreshold
       AlarmActions:
         - !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
   CloudMapSyncFuncRole:
@@ -1590,7 +1880,7 @@ Resources:
       AssumeRolePolicyDocument:
         Statement:
           - Action:
-            - sts:AssumeRole
+              - sts:AssumeRole
             Effect: Allow
             Principal:
               Service: [lambda.amazonaws.com]
@@ -1600,11 +1890,11 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - 'logs:CreateLogStream'
-                Resource: !GetAtt LambdaLogGroup.Arn 
+                  - "logs:CreateLogStream"
+                Resource: !GetAtt LambdaLogGroup.Arn
               - Effect: Allow
                 Action:
-                  - 'logs:PutLogEvents'
+                  - "logs:PutLogEvents"
                 Resource: !Sub ${LambdaLogGroup.Arn}:*
         - PolicyName: lambda-service-discovery-access
           PolicyDocument:
@@ -1614,7 +1904,7 @@ Resources:
                   - "servicediscovery:GetOperation"
                   - "servicediscovery:DiscoverInstances"
                   - "servicediscovery:GetInstancesHealthStatus"
-                  - "servicediscovery:GetInstance" 
+                  - "servicediscovery:GetInstance"
                   - "servicediscovery:ListInstances"
                 Resource: "*"
               - Effect: Allow
@@ -1622,18 +1912,18 @@ Resources:
                   - "servicediscovery:DeregisterInstance"
                   - "servicediscovery:RegisterInstance"
                   - "route53:ChangeResourceRecordSets"
-                Resource: "*" 
+                Resource:
+                  "*"
                   # - !GetAtt DiscoveryServiceCoreA.Arn
                   # - !GetAtt DiscoveryServiceReplicaA.Arn
   LambdaLogGroup:
-    Type: 'AWS::Logs::LogGroup'
+    Type: "AWS::Logs::LogGroup"
     Properties:
       LogGroupName: !Sub /aws/lambda/${AWS::StackName}-cloud-map-sync
   CloudMapSyncFunction:
-    DependsOn: [Neo4jClusterTask]
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-cloud-map-sync 
+      FunctionName: !Sub ${AWS::StackName}-cloud-map-sync
       Description: Function to create A records from SRV records by AWS CloudMap
       Handler: index.lambda_handler
       Runtime: python3.6
@@ -1641,14 +1931,30 @@ Resources:
       MemorySize: 128
       Timeout: 10
       Environment:
-        Variables: 
-          CLOUDMAP_NAMESPACE: !If [CreateCloudMapNamespace, !Ref DiscoveryNamespace, !Ref CloudMapNamespaceID]
+        Variables:
+          CLOUDMAP_NAMESPACE:
+            !If [
+              CreateCloudMapNamespace,
+              !Ref DiscoveryNamespace,
+              !Ref CloudMapNamespaceID,
+            ]
           ECS_CORE_TASK: !Ref Neo4jClusterTask
-          ECS_REPLICA_TASK: !If [ReplicasEnabled, !Ref Neo4jReplicasTask, !Ref "AWS::NoValue" ]
+          ECS_REPLICA_TASK:
+            !If [ReplicasEnabled, !Ref Neo4jReplicasTask, !Ref "AWS::NoValue"]
           NEO4J_CORE_SERVICE_SRV: !Ref DiscoveryServiceCoreSRV
           NEO4j_CORE_SERVICE_A: !Ref DiscoveryServiceCoreA
-          NEO4J_REPLICA_SERVICE_SRV: !If [ ReplicasEnabled, !Ref DiscoveryServiceReplicaSRV, !Ref "AWS::NoValue" ] 
-          NEO4j_REPLICA_SERVICE_A: !If [ ReplicasEnabled, !Ref DiscoveryServiceReplicaA, !Ref "AWS::NoValue" ] 
+          NEO4J_REPLICA_SERVICE_SRV:
+            !If [
+              ReplicasEnabled,
+              !Ref DiscoveryServiceReplicaSRV,
+              !Ref "AWS::NoValue",
+            ]
+          NEO4j_REPLICA_SERVICE_A:
+            !If [
+              ReplicasEnabled,
+              !Ref DiscoveryServiceReplicaA,
+              !Ref "AWS::NoValue",
+            ]
       Code:
         ZipFile: |
           import boto3
@@ -1739,22 +2045,26 @@ Resources:
         source: ["aws.ecs"]
         detail-type: ["ECS Task State Change"]
         detail:
-          clusterArn: 
-          - !GetAtt Neo4jCluster.Arn
-          - !If [ ReplicasEnabled, !GetAtt Neo4jReplicas.Arn, !Ref "AWS::NoValue"]
+          clusterArn:
+            - !GetAtt Neo4jCluster.Arn
+            - !If [
+                ReplicasEnabled,
+                !GetAtt Neo4jReplicas.Arn,
+                !Ref "AWS::NoValue",
+              ]
           taskDefinitionArn:
-          - !Ref Neo4jClusterTask
-          - !If [ ReplicasEnabled, !Ref Neo4jReplicasTask, !Ref "AWS::NoValue"] 
+            - !Ref Neo4jClusterTask
+            - !If [ReplicasEnabled, !Ref Neo4jReplicasTask, !Ref "AWS::NoValue"]
       Targets:
-      - Arn: !GetAtt CloudMapSyncFunction.Arn
-        Id: !Sub "${AWS::StackName}-ecs-task-state-change"
-  TaskStateChangeInvokeLambdaPermission: 
+        - Arn: !GetAtt CloudMapSyncFunction.Arn
+          Id: !Sub "${AWS::StackName}-ecs-task-state-change"
+  TaskStateChangeInvokeLambdaPermission:
     Type: AWS::Lambda::Permission
-    Properties: 
-      FunctionName: !Ref CloudMapSyncFunction 
+    Properties:
+      FunctionName: !Ref CloudMapSyncFunction
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt TaskStateChangeRule.Arn 
+      SourceArn: !GetAtt TaskStateChangeRule.Arn
   TaskMonitorEventRule:
     Type: "AWS::Events::Rule"
     Properties:
@@ -1765,12 +2075,12 @@ Resources:
         source: ["aws.ecs"]
         detail-type: ["ECS Task State Change"]
         detail:
-          clusterArn: [ !GetAtt Neo4jCluster.Arn ]
-          taskDefinitionArn: [ !Ref Neo4jClusterTask ] 
-          stoppedReason: [ "Essential container in task exited" ]
+          clusterArn: [!GetAtt Neo4jCluster.Arn]
+          taskDefinitionArn: [!Ref Neo4jClusterTask]
+          stoppedReason: ["Essential container in task exited"]
       Targets:
-      - Arn: !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
-        Id: !Sub "${AWS::StackName}-ecs-task-monitor"
+        - Arn: !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
+          Id: !Sub "${AWS::StackName}-ecs-task-monitor"
   TaskMonitorEventSNSPolicy:
     Type: AWS::SNS::TopicPolicy
     Properties:
@@ -1820,6 +2130,6 @@ Outputs:
   Neo4jReplicaHTTPEndpoint:
     Value: !Sub http://${Neo4jReplicasSubdomain}.${CloudMapNamespaceName}:7474
   Neo4jCoreBoltEndpoint:
-    Value: !Sub bolt+routing://${Neo4jCoreSubdomain}.${CloudMapNamespaceName}:7687
+    Value: !Sub neo4j://${Neo4jCoreSubdomain}.${CloudMapNamespaceName}:7687
   Neo4jReplicaHoltEndpoint:
-    Value: !Sub bolt+routing://${Neo4jReplicasSubdomain}.${CloudMapNamespaceName}:7687
+    Value: !Sub neo4j://${Neo4jReplicasSubdomain}.${CloudMapNamespaceName}:7687

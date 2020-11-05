@@ -4,6 +4,14 @@ A setup for a [Neo4j Enterprise](https://neo4j.com/subscriptions/#editions) [Cau
 
 You can obtain Neo4j from the [official website](https://neo4j.com/). Please contact sales@neo4j.com for Enterprise licensing.
 
+----
+
+## [Upgrade guide for 3.5.x -> 4.2.x](./UPGRADE.md)
+
+----
+
+## Content
+
 1. [Why](#why)
 1. [Features](#features)
 1. [Includes](#includes)
@@ -19,6 +27,7 @@ You can obtain Neo4j from the [official website](https://neo4j.com/). Please con
     1. [Patch version upgrades](#patch-version-upgrades)
     1. [Major and minor version upgrades](#major-and-minor-version-upgrades)
 1. [Neo4j cluster operations manual](#Neo4j-cluster-operations-manual)
+1. [Troubleshooting](#troubleshooting)
 
 ## Why
 
@@ -44,8 +53,8 @@ and that the new Causal Cluster architecture would be the preferred approach giv
 ## Includes
 
 - Customizable CloudFormation template.
-- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 3.5.18*:
-  - Custom extension [ecs-extension.sh](./ecs-extension.sh) for official [docker-entrypoint.sh](https://github.com/neo4j/docker-neo4j/blob/master/docker-image-src/3.5/docker-entrypoint.sh)
+- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 4.2.3*:
+  - Custom extension [ecs-extension.sh](./ecs-extension.sh) for official [docker-entrypoint.sh](https://github.com/neo4j/docker-neo4j/blob/master/docker-image-src/4.2/docker-entrypoint.sh)
   - Custom healthcheck script [healthcheck.sh](./healthcheck.sh)
   - Custom script for initial db users creation [init-db.sh](./init-db.sh)
 
@@ -69,6 +78,7 @@ and that the new Causal Cluster architecture would be the preferred approach giv
     - You can't restore a cluster from a backup without a downtime. Rolling backup restore is not possible. You need to stop the cluster and then do the imports. See [further instructions](https://neo4j.com/docs/operations-manual/current/backup/restoring/#backup-restoring-causal-cluster)
     - Restore from the specific backup file on the same cluster possible only once. Successful restore from backup [will create *file-marker* on the data volume](./ecs-extension.sh#120-125) to avoid the backup re-import on every docker container restart.
     - During backup restore from the backup follower nodes may get restarted once, after they start next time cluster should successfully form itself.
+    - Backup only for the default database is supported at the moment
 
 - #### ECS Instances draining support
 
@@ -324,6 +334,36 @@ Most of cluster operations is done via ECS Console:
     1. Remove this volumes *(DO THIS ON YOUR OWN RISK)*
     1. [Start cluster](#start-cluster)
 
+## Troubleshooting
+
+In most of the cases, algorithm will be following:
+
+1. Try neo4j UI on the port `7474`. Run `:sysinfo` to see nodes present in the cluster.
+2. Check the CloudWatch Logs output of neo4j container for any problems.
+3. Check the Neo4j ECS Cluster/Service/Tasks for stopped ones and ecs/docker errors, container exist codes.
+4. Check the Neo4j debug logs for any problems.
+    Debug logs can be found on the disk or in the CloudWatch logs if `CaptureDebugLogs` enabled.
+    And ECS tasks can be found in the AWS ECS Console.
+
+Possible problems:
+
+1. Cluster leader keep changing. Possible reasons are:
+    - Neo4j containers are being restarted. Check ECS for the stopped tasks, if there are some, this means that
+    containers are being restarted. You need to figure out why. They can be killed due the HealthCheck failure,
+    due to instance replacement or some internal error. You should be able to find out that from the ECS Console.
+    If it is some internal error, check the Neo4j container output logs for errors. So you need to find the reason
+    and fix it.
+
+    - Neo4j re-elects the cluster leader because of long GC pauses. You should be able see corresponding logs in the
+    debug log. There are usually application related reasons, like very heavy query.
+
+1. Cluster not forming. Check the output of Neo4j containers (in the CloudWatch logs) or the debug logs.
+   Discovery happens in the `cloudmap_discover` function in the `ecs-extension.sh` script via calls to the
+   AWS CloudMap API. So on the cluster forming stage, if any of the containers cannot start, discovery will fail.
+
+   Also, check for configuration problems. Remember, that amount of configured Availability zones (via Subnets)
+   should match the number of core nodes in the cluster, so RexRay plugin can create one EBS volume per AZ.
+
 ## TODO
 
 - Allow to customize backup frequency
@@ -334,3 +374,4 @@ Most of cluster operations is done via ECS Console:
     - Publish custom neo4j image on DockerHub
     - Add LauchStack button
 - More advanced monitoring ([Halin](https://medium.com/neo4j/monitoring-neo4j-with-halin-4c11429b46ff) or sending runtime metrics to CloudWatch)
+- Backup of multiple databases

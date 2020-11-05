@@ -15,7 +15,7 @@ warmup() {
     echo "Warmup: Running..."
     echo
     echo "===================="
-    echo ${query} | /var/lib/neo4j/bin/cypher-shell
+    echo ${query} | /var/lib/neo4j/bin/cypher-shell -d system
     echo "===================="
     echo
     echo "Warmup: Done."
@@ -37,7 +37,7 @@ if [ "${GUEST_USERNAME}" != "" ] && [ "${GUEST_PASSWORD}" != "" ] ; then
     echo "Guest user: Creating user '${GUEST_USERNAME}'..."
     # this may fail if user already exists. alright, fine.
     echo "===================="
-    echo ${query} | /var/lib/neo4j/bin/cypher-shell
+    echo ${query} | /var/lib/neo4j/bin/cypher-shell -d system
     status=$?
     if [ "$status" -eq 0 ] ; then
         echo "Guest user: Created."
@@ -50,7 +50,7 @@ if [ "${GUEST_USERNAME}" != "" ] && [ "${GUEST_PASSWORD}" != "" ] ; then
     query="CALL dbms.security.addRoleToUser('reader', '${GUEST_USERNAME}');"
     echo "Guest user: Adding 'reader' role."
     echo "===================="
-    echo ${query} | /var/lib/neo4j/bin/cypher-shell
+    echo ${query} | /var/lib/neo4j/bin/cypher-shell -d system
     status=$?
     if [ "$status" -eq 0 ] ; then
         echo "Guest user: Role added."

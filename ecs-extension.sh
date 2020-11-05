@@ -4,6 +4,7 @@ non_exec_cmd=${exec_cmd#"exec "}
 CLUSTER_IPS=""
 DISCOVERY_PORT=5000
 BOLT_PORT=7687
+BACKUP_PORT=6362
 # get more info from AWS environment:
 # - instance im running on
 # - my IP
@@ -11,7 +12,10 @@ INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id/)
 INSTANCE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4/)
 # the way to get IP from containers with awsvpc networking
 # INSTANCE_IP=$(cat /etc/hosts | tail -1 | awk {'print $1'})
+UPGRADE_MODE=${UPGRADE_MODE:-false}
 
+DEFAULT_DATABASE=neo4j
+# needed for backward compatibility and cluster upgrade
 BACKUP_NAME=neo4j-backup
 
 cloudmap_discover_instances() {
@@ -24,6 +28,12 @@ cloudmap_discover_instances() {
 
 
 cloudmap_discover() {
+    # skip discovery in the upgrade mode
+    if [ "$UPGRADE_MODE" == "true" ]; then
+        echo "Skipping instances discovery, because of UPGRADE_MODE=true"
+        return 0
+    fi
+
     local count=0
     local backoff=20
     local ips=""
@@ -60,10 +70,75 @@ cloudmap_discover() {
     done
 }
 
+backup() { # https://neo4j.com/docs/operations-manual/current/backup/performing/
+    BACKUP_DIR=${BACKUP_DIR:-/tmp/}
+
+    # cleaning old backups data before running daily backups
+    # to run full backup instead of incremental one
+    if [ "$(date +%H)" == "00" ]; then
+        rm -rfv $BACKUP_DIR/*
+    fi
+
+    
+    # TODO: backup all available databases?
+    # for ls ${NEO4J_DATA_ROOT}/databases/; do
+    echo "Creating Neo4j DB backup from node ${BACKUP_FROM:- }"
+    neo4j-admin backup \
+        --backup-dir=$BACKUP_DIR/  \
+        --database=$DEFAULT_DATABASE \
+        ${BACKUP_FROM:+--from=$BACKUP_FROM}:${BACKUP_PORT} \
+        ${PAGE_CACHE:+--pagecache=$PAGE_CACHE} \
+        --check-consistency=false \
+        --verbose
+
+    BACKUP_FILE=$BACKUP_NAME-$(date +%s).zip
+
+    pushd $BACKUP_DIR
+
+    # rename dir for backward compatibility
+    rm -rf $BACKUP_NAME  
+    mv $DEFAULT_DATABASE $BACKUP_NAME 
+    zip -r $BACKUP_FILE $BACKUP_NAME
+
+    echo "Zipping backup content in file $BACKUP_FILE"
+    s3_path=""
+    # Upload file to the "/daily" dir if backup run at 00 hour
+    if [ "$(date +%H)" == "00" ]; then
+        s3_path="s3://$AWS_BACKUP_BUCKET/daily"
+    else
+        s3_path="s3://$AWS_BACKUP_BUCKET/hourly"
+    fi
+
+    # upload backup file as not-verified because we didn't check
+    # consistency yet
+    aws s3 cp --no-progress $BACKUP_FILE $s3_path/not-verified/
+    echo "Backup file is ready but not verified yet: $s3_path/not-verified/$BACKUP_FILE"
+    du -h $BACKUP_FILE
+
+    if [ $UPGRADE_MODE != "true" ]; then
+        # check consitency after file is uploaded to s3, because it may take a loooooong time
+        neo4j-admin check-consistency --backup=$BACKUP_NAME --verbose
+        aws s3 mv $s3_path/not-verified/$BACKUP_FILE $s3_path/$BACKUP_FILE
+    fi
+
+    echo "Success! Backup file is ready: $s3_path/$BACKUP_FILE"
+    rm -rf $BACKUP_FILE
+}
+
 # https://neo4j.com/docs/operations-manual/current/backup/restoring/#backup-restoring-causal-cluster
 restore_neo4j() {
-    BACKUP_DIR=/tmp
+    echo "Replacing healthcheck with fake one, during the beckup restore process"
+    cp -v /healthcheck.sh  /healthcheck.real.sh 
+    cp -v /healthcheck.fake.sh /healthcheck.sh
+
+    BACKUP_DIR=${NEO4J_DATA_ROOT}/downloads
+    mkdir -p ${BACKUP_DIR}
+
     BACKUP_PATH="$BACKUP_DIR/_snapshot.zip"
+    if [ ${SNAPSHOT_PATH: -5} == ".dump" ]; then
+       BACKUP_PATH="$BACKUP_DIR/_snapshot.dump" 
+    fi
+
     S3_PATH="s3://$SNAPSHOT_PATH"
 
     # we are going to save imported backup markers on the disk
@@ -90,9 +165,10 @@ restore_neo4j() {
         fi
     fi
 
+    rm -rf $BACKUP_DIR/* 
     echo "Restore initiated. Source: $S3_PATH"
 
-    aws s3 cp $S3_PATH $BACKUP_PATH
+    aws s3 cp --no-progress $S3_PATH $BACKUP_PATH
     local status=$?
     if [ "$status" -ne 0 ] ; then
         echo "Error: failed to copy snapshot $SNAPSHOT_PATH from S3"
@@ -100,22 +176,60 @@ restore_neo4j() {
     fi
 
     echo "Successfully copied snapshot $SNAPSHOT_PATH from S3!"
-    unzip $BACKUP_PATH -d $BACKUP_DIR | grep -v "debug"
+    if [ ${SNAPSHOT_PATH: -4} == ".zip" ]; then 
+        unzip $BACKUP_PATH -d $BACKUP_DIR | grep -v "debug"
+        chown -R ${userid}:${groupid} $BACKUP_PATH
+        rm -rfv ${BACKUP_PATH}
+    fi
 
     echo "Trying to unbind node from previous cluster memberships"
     ${non_exec_cmd} neo4j-admin unbind
 
-    echo "Running restore..."
-    ${non_exec_cmd} neo4j-admin restore --from="$BACKUP_DIR/$BACKUP_NAME" --database=graph.db --force
-    status=$?
-    if [ "$status" -ne 0 ] ; then
-        echo "Error: failed to restore from snapshot."
-        return 1
+    # https://neo4j.com/docs/migration-guide/4.0/online-backup-copy-database/#tutorial-online-backup-copy-database
+    if [ "$UPGRADE_MODE" == "true" ]; then
+        echo "Upgrading database from snapshot"
+        rm -rf $NEO4J_DATA_ROOT/data/databases/neo4j 
+        neo4j-admin copy \
+            --from-path="$BACKUP_DIR/$BACKUP_NAME" \
+            --from-pagecache="${NEO4J_dbms_memory_pagecache_size}" \
+            --to-database=$DEFAULT_DATABASE \
+            --to-pagecache="${NEO4J_dbms_memory_heap_max__size}" \
+            --force --verbose
+        status=$?
+        if [ "$status" -ne 0 ] ; then
+            echo "Error: failed to upgrade from snapshot."
+            return 1
+        fi
+
+        echo "Now dumping restored data, so it can be imported into other nodes"
+        DUMP_FILE=/tmp/$DEFAULT_DATABASE-$(date +%s).dump
+        neo4j-admin dump --database=$DEFAULT_DATABASE  --to=$DUMP_FILE
+        aws s3 cp --no-progress $DUMP_FILE s3://$AWS_BACKUP_BUCKET/dumps/
+        echo "Uploaded dump file to s3"
+    elif [ ${SNAPSHOT_PATH: -5} == ".dump" ]; then 
+        echo "Loading dump..."
+        ${non_exec_cmd} neo4j-admin load --from=$BACKUP_PATH --database=$DEFAULT_DATABASE --force
+        status=$?
+        if [ "$status" -ne 0 ] ; then
+            echo "Error: failed to load db dump"
+            return 1
+        fi
+    else
+        echo "Running restore..."
+        ${non_exec_cmd} neo4j-admin restore --from="$BACKUP_DIR/$BACKUP_NAME" --database=$DEFAULT_DATABASE --force
+        status=$?
+        if [ "$status" -ne 0 ] ; then
+            echo "Error: failed to restore from snapshot."
+            return 1
+        fi
     fi
+
 
     echo "Enforcing permissions"
     chown -R ${userid}:${groupid} $NEO4J_HOME/data/
-    echo "Restore completed"
+
+    echo "Restore completed. Cleaning up downloaded files..."
+    rm -rf ${BACKUP_DIR}
 
     if [ ! -z "${NEO4J_DATA_ROOT:-}" ]; then 
         echo "Marking successful backup restoration with marker $MARKER"
@@ -123,6 +237,10 @@ restore_neo4j() {
         mkdir -p $BACKUP_MARKERS_PATH
         touch $MARKER 
     fi
+
+    echo "Bring back real healthcheck script"
+    cp -v /healthcheck.sh /healthcheck.fake.sh
+    cp -v /healthcheck.real.sh /healthcheck.sh 
 }
 
 # copy of the piece of code from the original docker-entrypoint.sh
@@ -195,12 +313,18 @@ configure() {
 
     # setting custom variables
     # high availability cluster settings.
+    # https://neo4j.com/docs/operations-manual/current/reference/configuration-settings/#configuration-settings
     NEO4J_dbms_mode=${NEO4J_dbms_mode:-CORE}
-    NEO4J_dbms_connectors_default__listen__address=0.0.0.0
-    NEO4J_dbms_connectors_default__advertised__address=$INSTANCE_IP
+    NEO4J_dbms_default__listen__address=0.0.0.0
+    NEO4J_dbms_default__advertised__address=$INSTANCE_IP
+
+    NEO4J_causal__clustering_discovery__advertised__address=$INSTANCE_IP:5000 
+    NEO4J_causal__clustering_transaction__advertised__address=$INSTANCE_IP:6000 
+    NEO4J_causal__clustering_raft__advertised__address=$INSTANCE_IP:7000
     NEO4J_causal__clustering_initial__discovery__members=${NEO4J_causal__clustering_initial__discovery__members:-core.neo4j.testing:0}
     NEO4J_causal__clustering_discovery__type=${NEO4J_causal__clustering_discovery__type:-SRV}
-    NEO4J_dbms_backup_address=${NEO4J_dbms_backup_address:-0.0.0.0:6362}
+
+    NEO4J_dbms_backup_listen__address=${NEO4J_dbms_backup_address:-0.0.0.0}:$BACKUP_PORT
     NEO4J_dbms_allow__upgrade=${NEO4J_dbms_allow__upgrade:-false}
     NEO4J_apoc_export_file_enabled=true
     NEO4J_dbms_security_causal__clustering__status__auth__enabled=false
@@ -214,7 +338,6 @@ configure() {
 
 
     if [ $NEO4J_causal__clustering_discovery__type == "LIST" ]; then
-        cloudmap_discover
         NEO4J_causal__clustering_initial__discovery__members=$CLUSTER_IPS
     fi
 
@@ -255,6 +378,8 @@ setup_dirs () {
 
         # make sure subdirs exist
         mkdir -p $NEO4J_DATA_ROOT/data/dbms
+        mkdir -p $NEO4J_DATA_ROOT/data/databases
+        mkdir -p $NEO4J_DATA_ROOT/data/transactions
         mkdir -p $NEO4J_DATA_ROOT/logs
         mkdir -p $NEO4J_DATA_ROOT/metrics
 
@@ -282,7 +407,7 @@ $NEO4J_DATA_ROOT/logs/slow_query.log {
         fi
 
         # rotate logs on each start
-        logrotate -f -v /tmp/log.rotate || true
+        logrotate -f /tmp/log.rotate || true
     fi
 }
 
@@ -324,9 +449,6 @@ if [ "${cmd}" == "start" ]; then
 
     ${exec_cmd} neo4j console
 elif [ "${cmd}" == "backup" ]; then
-    # https://neo4j.com/docs/operations-manual/current/backup/performing/
-    BACKUP_DIR=${BACKUP_DIR:-/tmp}
-
     if [ -z  $BACKUP_FROM ] || [ "$BACKUP_FROM" == "this_instance" ]; then
         INSTANCE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4/)
         MACS=$(curl -s http://169.254.169.254/latest/meta-data/network/interfaces/macs/)
@@ -346,30 +468,7 @@ elif [ "${cmd}" == "backup" ]; then
         BACKUP_FROM=$(cloudmap_discover_instances | awk '{print $1}')
     fi
 
-    # cleaning old backups data before running daily backups
-    # to run full backup instead of incremental one
-    if [ "$(date +%H)" == "00" ]; then
-        rm -rfv $BACKUP_DIR/*
-    fi
-
-    echo "Creating Neo4j DB backup from node $BACKUP_FROM"
-    neo4j-admin backup --backup-dir=$BACKUP_DIR/ --name=$BACKUP_NAME --from=$BACKUP_FROM ${PAGE_CACHE:+--pagecache=$PAGE_CACHE}
-
-    BACKUP_FILE=$BACKUP_NAME-$(date +%s).zip
-
-    echo "Zipping backup content in file $BACKUP_FILE"
-    pushd $BACKUP_DIR
-    zip -r $BACKUP_FILE $BACKUP_NAME
-    # Upload file to the "/daily" dir if backup run at 00 hour
-    if [ "$(date +%H)" == "00" ]; then
-        aws s3 cp $BACKUP_FILE s3://$AWS_BACKUP_BUCKET/daily/
-    else
-        aws s3 cp $BACKUP_FILE s3://$AWS_BACKUP_BUCKET/hourly/
-    fi
-    du -h $BACKUP_FILE
-    
-    echo "Success! Exiting"
-    rm -rf $BACKUP_FILE
+    backup
     exit 0
 else
     ${exec_cmd} "$@"

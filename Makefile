@@ -1,4 +1,4 @@
-BRANCH=causal
+BRANCH=causal-4.2.x
 COMMIT=$(BRANCH)-$(shell git rev-parse HEAD)
 DATE=$(shell date +%Y-%m-%d-%H-%M)
 
