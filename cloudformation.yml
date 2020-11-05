@@ -39,6 +39,7 @@ Metadata:
         Parameters:
           - BackupBatchQueueARN
           - BackupBatchInstanceType
+          - BackupBatchMaxVCPUs
           - BackupPath
           - BackupBatchDiskSize
           - BackupHourlyStoreForDays
@@ -293,6 +294,17 @@ Parameters:
         r3.large, #  r3.large on spot is actually cheaper then m4.large
       ] # NOTE: Feel free to extend the list of instances but define Memory maps for them.
     ConstraintDescription: Please choose a valid instance type.
+  BackupBatchMaxVCPUs:
+    Type: Number
+    Default: 1
+    Description: |
+      Defines how many servers can be launched in parallel for batch jobs.
+      If backup takes longer than 1 hour you may want more then one server to meet the schedule.
+      For example, if you choose the m3.medium server for running backup jobs, which has 1 vCPU,
+      and set MaxVCPUs to 1, this mean that only one job can be run in parallel.
+      However, if you set MaxVCPUs to 3, up to 3 servers may be started if needed.
+      And if you choose the r3.large you have to set this value to 2 at least, otherwise, batch
+      server will never start. 
   BackupBatchDiskSize:
     Description: |
       Size of the disk to perform backups on. Take in mind that 
@@ -1261,6 +1273,7 @@ Resources:
             Action:
               - "s3:PutObject"
               - "s3:GetObject"
+              - "s3:DeleteObject"
             Resource: !Sub "${BackupBucket.Arn}/*"
       Roles:
         - !Ref ECSTaskRole
@@ -1433,13 +1446,8 @@ Resources:
           Version: !GetAtt Neo4jBatchLanuchTemplate.LatestVersionNumber
           LaunchTemplateId: !Ref Neo4jBatchLanuchTemplate
         AllocationStrategy: BEST_FIT
-        DesiredvCpus: 0
         MinvCpus: 0
-        MaxvCpus:
-          Fn::FindInMap:
-            - InstanceTypes
-            - !Ref "BackupBatchInstanceType"
-            - vCPUs
+        MaxvCpus: !Ref BackupBatchMaxVCPUs
         InstanceRole: !Ref Neo4jInstanceProfile
         SpotIamFleetRole: !GetAtt SpotFleetRole.Arn
         InstanceTypes: [!Ref BackupBatchInstanceType]
@@ -1467,7 +1475,7 @@ Resources:
       RetryStrategy:
         Attempts: 5
       Timeout:
-        AttemptDurationSeconds: 10800
+        AttemptDurationSeconds: 18000
       ContainerProperties:
         JobRoleArn: !GetAtt ECSTaskRole.Arn
         Command: [backup]
@@ -1575,7 +1583,7 @@ Resources:
         detail-type: ["Batch Job State Change"]
         detail:
           jobQueue:
-            !If [CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN]
+            - !If [CreateBatchEnv, !Ref BatchQueue, !Ref BackupBatchQueueARN]
           status: ["FAILED"]
       Targets:
         - Arn: !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]

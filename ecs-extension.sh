@@ -353,20 +353,30 @@ elif [ "${cmd}" == "backup" ]; then
     fi
 
     echo "Creating Neo4j DB backup from node $BACKUP_FROM"
-    neo4j-admin backup --backup-dir=$BACKUP_DIR/ --name=$BACKUP_NAME --from=$BACKUP_FROM ${PAGE_CACHE:+--pagecache=$PAGE_CACHE}
+    neo4j-admin backup --backup-dir=$BACKUP_DIR/ --name=$BACKUP_NAME --from=$BACKUP_FROM ${PAGE_CACHE:+--pagecache=$PAGE_CACHE} --check-consistency=false
 
     BACKUP_FILE=$BACKUP_NAME-$(date +%s).zip
 
     echo "Zipping backup content in file $BACKUP_FILE"
     pushd $BACKUP_DIR
     zip -r $BACKUP_FILE $BACKUP_NAME
+    s3_path=""
     # Upload file to the "/daily" dir if backup run at 00 hour
     if [ "$(date +%H)" == "00" ]; then
-        aws s3 cp $BACKUP_FILE s3://$AWS_BACKUP_BUCKET/daily/
+        s3_path="s3://$AWS_BACKUP_BUCKET/daily"
     else
-        aws s3 cp $BACKUP_FILE s3://$AWS_BACKUP_BUCKET/hourly/
+        s3_path="s3://$AWS_BACKUP_BUCKET/hourly"
     fi
+
+    # upload backup file as not-verified because we didn't check
+    # consistency yet
+    aws s3 cp $BACKUP_FILE $s3_path/not-verified/
     du -h $BACKUP_FILE
+
+    # check consitency after file is uploaded to s3, because it may take a loooooong time
+    neo4j-admin check-consistency --backup=$BACKUP_NAME --verbose=true
+
+    aws s3 mv $s3_path/not-verified/$BACKUP_FILE $s3_path/$BACKUP_FILE
     
     echo "Success! Exiting"
     rm -rf $BACKUP_FILE
