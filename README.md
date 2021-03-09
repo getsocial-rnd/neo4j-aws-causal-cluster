@@ -167,13 +167,13 @@ Setup is split logically into 2 ECS clusters (yet still it's 1 Neo4j cluster):
 
 ## Usage
 
-1. Create an ECR repository for Neo4j custom images. You will use its ARN.
-   (ARN looks like `arn:aws:ecr:us-east-1:123456789012:repository/neo`).
+1. Create an ECR repository for Neo4j custom images. You will use its URL.
+   (URL looks like `1234567890.dkr.ecr.us-east-1.amazonaws.com/neo`).
 
 2. Save environment variable for use in the makefile (customize them first)
 
     ```sh
-    export NEO_ECR_REPO=<paste here ARN of your ECR repo>
+    export NEO_ECR_REPO=<paste here URL of your ECR repo>
     export NEO_AWS_REGION=<your AWS region>
     ```
 
