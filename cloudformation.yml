@@ -1831,7 +1831,7 @@ Resources:
       Statistic: Average
       Period: 60
       EvaluationPeriods: 10
-      Threshold: 85
+      Threshold: 95
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
         - !If [CreateSNSTopic, !Ref Neo4jSNSTopic, !Ref SNSTopicArn]
