@@ -1,4 +1,4 @@
-FROM  neo4j:4.2.3-enterprise
+FROM  neo4j:4.2.4-enterprise
 
 RUN apt update && apt install -y --no-install-recommends \
 	curl \
@@ -12,7 +12,7 @@ RUN apt update && apt install -y --no-install-recommends \
 # Install plugins
 RUN mkdir -p /var/lib/neo4j/plugins
 
-ENV NEO4J_APOC_VERSION=4.2.0.1
+ENV NEO4J_APOC_VERSION=4.2.0.2
 
 RUN curl -L -s https://github.com/neo4j-contrib/neo4j-apoc-procedures/releases/download/$NEO4J_APOC_VERSION/apoc-$NEO4J_APOC_VERSION-all.jar \
 	> /var/lib/neo4j/plugins/apoc-$NEO4J_APOC_VERSION-all.jar && \
