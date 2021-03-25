@@ -1236,6 +1236,7 @@ Resources:
             - idList: !Join [",", !Ref "NodeSecurityGroups"]
         UserData:
           Fn::Base64: !Sub |
+            ## template: jinja
             #cloud-config
             packages:
             - aws-cfn-bootstrap
@@ -1369,6 +1370,23 @@ Resources:
         - RegistryArn: !GetAtt DiscoveryServiceReplicaSRV.Arn
           ContainerName: neo4j
           ContainerPort: 5000
+  SSMAgentPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${AWS::StackName}-ssm-agent-permissions"
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+               - "ec2messages:AcknowledgeMessage"
+               - "ec2messages:GetMessages"
+               - "ec2messages:SendReply"
+               - "ssm:ListAssociations"
+               - "ssm:ListInstanceAssociations"
+               - "ssm:UpdateInstanceInformation"
+            Resource: "*"
+      Roles:
+        - !Ref EC2Role
   S3RestorePolicy:
     Type: AWS::IAM::Policy
     Properties:
