@@ -774,6 +774,8 @@ Resources:
               - Name: NEO4J_dbms_logs_query_threshold
                 Value: !Ref SlowQueryLog
               - !Ref AWS::NoValue
+            - Name: NEO4J_apoc_ttl_schedule
+              Value: 60
           Ulimits:
             - Name: nofile
               HardLimit: 400000
