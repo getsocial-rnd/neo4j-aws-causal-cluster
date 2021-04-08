@@ -1135,7 +1135,7 @@ Resources:
             OnDemandAllocationStrategy: prioritized
             OnDemandBaseCapacity: 0
             OnDemandPercentageAboveBaseCapacity: 0 # all spot instances
-            SpotAllocationStrategy: capacity-optimized
+            SpotAllocationStrategy: capacity-optimized-prioritized
             # SpotMaxPrices sets the maximum price you are willing to pay for the instance
             # setting the null value (AWS::NoValue) ensures the MaxPrice is the same
             # as actual on demand price for that instance type.
@@ -1193,7 +1193,7 @@ Resources:
             OnDemandAllocationStrategy: prioritized
             OnDemandBaseCapacity: 0
             OnDemandPercentageAboveBaseCapacity: 0 # all spot instances
-            SpotAllocationStrategy: capacity-optimized
+            SpotAllocationStrategy: capacity-optimized-prioritized
             SpotMaxPrice: !Ref AWS::NoValue
         - !Ref AWS::NoValue
       Tags:
