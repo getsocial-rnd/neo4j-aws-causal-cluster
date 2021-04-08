@@ -326,7 +326,13 @@ configure() {
 
     NEO4J_dbms_backup_listen__address=${NEO4J_dbms_backup_address:-0.0.0.0}:$BACKUP_PORT
     NEO4J_dbms_allow__upgrade=${NEO4J_dbms_allow__upgrade:-false}
+    
     NEO4J_apoc_export_file_enabled=true
+
+    # enable TTL support and run query to delete every x mins
+    NEO4J_apoc_ttl_enabled=${NEO4J_apoc_ttl_enabled:-true}
+    NEO4J_apoc_ttl_schedule=${NEO4J_apoc_ttl_schedule:-300}
+
     NEO4J_dbms_security_causal__clustering__status__auth__enabled=false
 
     # not configurable for now.
