@@ -53,7 +53,7 @@ and that the new Causal Cluster architecture would be the preferred approach giv
 ## Includes
 
 - Customizable CloudFormation template.
-- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 4.2.3*:
+- Extended docker image on top [official Neo4j image](https://hub.docker.com/_/neo4j/). Current version - *Neo4j 4.2.4*:
   - Custom extension [ecs-extension.sh](./ecs-extension.sh) for official [docker-entrypoint.sh](https://github.com/neo4j/docker-neo4j/blob/master/docker-image-src/4.2/docker-entrypoint.sh)
   - Custom healthcheck script [healthcheck.sh](./healthcheck.sh)
   - Custom script for initial db users creation [init-db.sh](./init-db.sh)
